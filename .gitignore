@@ -1,0 +1,27 @@
+# Local environment and secrets
+.venv/
+venv/
+myvenv/
+.env
+.env.*
+!.env.example
+
+# Local database and uploaded client documents
+*.sqlite3
+*.sqlite3-journal
+db.sqlite3
+media/
+
+# Python-generated files
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Django generated files
+staticfiles/
+
+# Editor and operating system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
