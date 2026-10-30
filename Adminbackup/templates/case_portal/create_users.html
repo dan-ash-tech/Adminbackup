@@ -1,0 +1,43 @@
+{% extends "case_portal/base.html" %}
+
+{% block title %}Create users{% endblock %}
+
+{% block content %}
+  <div class="workspace-page">
+    <div class="workspace-header">
+      <div>
+        <p class="eyebrow">Administration</p>
+        <h1>Create user account</h1>
+        <p class="intro">Choose the access role that matches the user’s responsibilities.</p>
+      </div>
+      <div class="workspace-header-actions">
+        <a class="btn btn-outline-secondary button button-secondary" href="{% url 'manage-users' %}">Back to users</a>
+      </div>
+    </div>
+
+  {% if messages %}
+    {% for message in messages %}
+      <p class="notice {{ message.tags }}" role="status">{{ message }}</p>
+    {% endfor %}
+  {% endif %}
+
+  <form class="workspace-form" method="post" novalidate>
+    {% csrf_token %}
+    {{ user_form.non_field_errors }}
+    <section class="workspace-card">
+      {% for field in user_form %}
+        <div class="field">
+          {{ field.label_tag }}
+          {{ field }}
+          {{ field.errors }}
+          {% if field.help_text %}<span class="help">{{ field.help_text }}</span>{% endif %}
+        </div>
+      {% endfor %}
+    </section>
+    <div class="actions">
+      <button class="btn btn-primary" type="submit">Create user</button>
+      <a class="btn btn-outline-secondary button button-secondary" href="{% url 'manage-users' %}">Cancel</a>
+    </div>
+  </form>
+  </div>
+{% endblock %}

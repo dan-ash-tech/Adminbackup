@@ -1,0 +1,220 @@
+{% extends "case_portal/base.html" %}
+
+{% block title %}{{ dashboard_title }}{% endblock %}
+
+{% block content %}
+  <div class="dashboard-heading">
+    <div>
+      <p class="eyebrow">Target workspace</p>
+      <h1>{{ dashboard_title }}</h1>
+      {% if dashboard_message %}
+        <p class="intro">{{ dashboard_message|linebreaksbr }}</p>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if messages %}
+    {% for message in messages %}
+      <p class="notice {{ message.tags }}" role="status">{{ message }}</p>
+    {% endfor %}
+  {% endif %}
+
+  {% if show_target_totals %}
+    <section class="target-totals" aria-label="Target totals">
+      <article class="target-total">
+        <h2>Current monitored targets</h2>
+        <p>{{ current_target_count }}</p>
+      </article>
+      <article class="target-total">
+        <h2>Stopped targets</h2>
+        <p>{{ stopped_target_count }}</p>
+      </article>
+    </section>
+  {% endif %}
+
+  <nav class="status-tabs" aria-label="Monitoring status">
+    <a class="status-tab{% if status == 'current' %} is-active{% endif %}"
+       href="{% url 'dashboard' %}?status=current"{% if status == 'current' %} aria-current="page"{% endif %}>
+      Current Monitored
+    </a>
+    <a class="status-tab{% if status == 'stopped' %} is-active{% endif %}"
+       href="{% url 'dashboard' %}?status=stopped"{% if status == 'stopped' %} aria-current="page"{% endif %}>
+      Stopped From The System
+    </a>
+  </nav>
+
+  <form class="dashboard-search" method="get" action="{% url 'dashboard' %}">
+    <input type="hidden" name="status" value="{{ status }}">
+    <label for="dashboard-search">Search Targets</label>
+    <div class="search-controls">
+      <input class="form-control" id="dashboard-search" type="search" name="q" value="{{ search_query }}" placeholder="Search any target field, including S/N, call-sign, assignee, dates, or files">
+      <button class="btn btn-primary" type="submit">Search</button>
+      {% if search_query %}
+        <a class="btn btn-outline-secondary button button-secondary" href="{% url 'dashboard' %}?status={{ status }}">Clear</a>
+      {% endif %}
+    </div>
+  </form>
+
+  <p class="results-summary" role="status">
+    Showing {{ page_obj.start_index }}–{{ page_obj.end_index }} of {{ page_obj.paginator.count }} targets
+  </p>
+
+  <div class="table-scroll dashboard-table-scroll">
+    <table class="records-table table table-vcenter table-hover">
+      <thead>
+        <tr>
+          <th scope="col">S/N</th>
+          <th scope="col">Call-sign</th>
+          <th scope="col">First name</th>
+          <th scope="col">Last name</th>
+          {% if visible_optional_columns.phone_numbers %}<th scope="col">Phone numbers</th>{% endif %}
+          {% if visible_optional_columns.authorizer %}<th scope="col">Authorizer</th>{% endif %}
+          {% if visible_optional_columns.case_type %}<th scope="col">Category / type</th>{% endif %}
+          {% if visible_optional_columns.user %}<th scope="col">User</th>{% endif %}
+          <th scope="col">Status</th>
+          <th scope="col">Start date</th>
+          {% if visible_optional_columns.monitoring_history %}<th scope="col">Monitoring history</th>{% endif %}
+          {% if visible_optional_columns.remarks %}<th scope="col">Description / remarks</th>{% endif %}
+          {% if visible_optional_columns.image %}<th scope="col">Identification</th>{% endif %}
+          {% if visible_optional_columns.report %}<th scope="col">Files</th>{% endif %}
+          <th scope="col">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for case in cases %}
+          <tr>
+            <td class="record-cell-serial">{{ page_obj.start_index|add:forloop.counter0 }}</td>
+            <td class="record-cell-code">{{ case.code }}</td>
+            <td class="record-cell-name">{{ case.first_name }}</td>
+            <td class="record-cell-name">{{ case.last_name }}</td>
+            {% if visible_optional_columns.phone_numbers %}<td class="record-cell-phone">
+              {% for target in case.phone_numbers.all %}
+                <div class="target-item">
+                  <span>{% if target.label %}{{ target.label }}: {% endif %}{{ target.number }}</span>
+                  {% if user.is_staff and perms.Adminbackup.delete_casephonenumber %}
+                    <form class="target-remove-form" method="post" action="{% url 'delete-case-phone-number' case.pk target.pk %}" onsubmit="return confirm('Remove this phone number?');">
+                      {% csrf_token %}
+                      <input type="hidden" name="status" value="{{ status }}">
+                      <input type="hidden" name="q" value="{{ search_query }}">
+                      <button class="target-remove-button" type="submit" aria-label="Remove phone number {{ target.number }}" title="Remove this phone number">Remove</button>
+                    </form>
+                  {% endif %}
+                </div>
+              {% empty %}
+                -
+              {% endfor %}
+            </td>{% endif %}
+            {% if visible_optional_columns.authorizer %}<td>{{ case.authorizer|default:"-" }}</td>{% endif %}
+            {% if visible_optional_columns.case_type %}<td class="record-cell-category">{{ case.case_type|default:"-"|linebreaksbr }}</td>{% endif %}
+            {% if visible_optional_columns.user %}<td class="record-cell-user">{{ case.assigned_users_display }}</td>{% endif %}
+            <td class="record-cell-status">
+              <span class="status-badge{% if case.monitoring_status == 'Current monitored' %} status-badge-current{% else %} status-badge-stopped{% endif %}">
+                {{ case.monitoring_status }}
+              </span>
+            </td>
+            <td class="record-cell-date">{{ case.start_date|date:"Y-m-d" }}</td>
+            {% if visible_optional_columns.monitoring_history %}
+              <td class="record-cell-history">
+                {% with periods=case.monitoring_periods.all %}
+                  {% if periods %}
+                    <details class="monitoring-history-details">
+                      <summary>Show history ({{ periods|length }})</summary>
+                      <ul class="monitoring-period-list">
+                        {% for period in periods %}
+                          <li class="monitoring-period-item{% if not period.terminated_on %} monitoring-period-current{% endif %}">
+                            <span>{{ period.started_on|date:"Y-m-d" }}</span>
+                            <span aria-hidden="true">→</span>
+                            <span>{% if period.terminated_on %}{{ period.terminated_on|date:"Y-m-d" }}{% else %}Current{% endif %}</span>
+                          </li>
+                        {% endfor %}
+                      </ul>
+                    </details>
+                  {% else %}-{% endif %}
+                {% endwith %}
+              </td>
+            {% endif %}
+            {% if visible_optional_columns.remarks %}
+              <td class="record-cell-description"><div class="record-description">{{ case.remarks|default:"-"|linebreaksbr }}</div></td>
+            {% endif %}
+            {% if visible_optional_columns.image %}
+            <td class="record-cell-identification">
+              {% if case.personal_identifications %}
+                <a class="record-file-link" href="{% url 'private-target-file' case.pk 'personal_identifications' %}">View identification</a>
+              {% else %}-{% endif %}
+            </td>
+            {% endif %}
+            {% if visible_optional_columns.report %}
+            <td class="record-cell-files">
+              <div class="report-file-grid">
+              {% for report in case.attached_reports.all %}
+                <a class="record-file-link" href="{% url 'private-attached-report' case.pk report.pk %}" title="{{ report }}">Download {{ report }}</a>
+              {% endfor %}
+              {% if case.attached_document %}
+                <a class="record-file-link" href="{% url 'private-target-file' case.pk 'attached_document' %}" title="{{ case.attached_document.name }}">Download {{ case.attached_document.name|cut:"case_documents/" }}</a>
+              {% elif not case.attached_reports.all %}-{% endif %}
+              </div>
+            </td>
+            {% endif %}
+            <td>
+              <div class="record-actions">
+                <a class="button" href="{% url 'view-target' case.pk %}?status={{ status }}{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}">View</a>
+              </div>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td class="empty-state" colspan="{{ table_column_count }}">{% if search_query %}No targets match your search.{% else %}No targets are assigned to your account in this status.{% endif %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if page_obj.paginator.num_pages > 1 %}
+    <nav class="dashboard-pagination" aria-label="Target result pages">
+      <span class="results-summary">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+      <ul class="pagination">
+        {% if page_obj.has_previous %}
+          <li class="page-item">
+            <a class="page-link" href="?status={{ status }}{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}&amp;page={{ page_obj.previous_page_number }}" aria-label="Previous page">Previous</a>
+          </li>
+        {% else %}
+          <li class="page-item disabled"><span class="page-link">Previous</span></li>
+        {% endif %}
+        {% if page_obj.has_next %}
+          <li class="page-item">
+            <a class="page-link" href="?status={{ status }}{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}&amp;page={{ page_obj.next_page_number }}" aria-label="Next page">Next</a>
+          </li>
+        {% else %}
+          <li class="page-item disabled"><span class="page-link">Next</span></li>
+        {% endif %}
+      </ul>
+    </nav>
+  {% endif %}
+
+  <div class="dashboard-export">
+    <form method="get" action="{% url 'dashboard-export' %}">
+      <div class="field">
+        <label for="export-status">Export targets to Excel</label>
+        <select class="form-select" id="export-status" name="export_status">
+          <option value="all">Current and stopped targets</option>
+          <option value="current">Current monitored targets only</option>
+          <option value="stopped">Stopped targets only</option>
+        </select>
+      </div>
+      <details class="export-column-dropdown">
+        <summary>Choose columns to export</summary>
+        <div class="export-column-menu">
+          <input type="hidden" name="columns_selected" value="1">
+          {% for key, label in export_columns %}
+            <label class="export-column-option">
+              <input type="checkbox" name="columns" value="{{ key }}" checked>
+              {{ label }}
+            </label>
+          {% endfor %}
+        </div>
+      </details>
+      <button class="btn btn-primary" type="submit">Export Excel</button>
+    </form>
+  </div>
+{% endblock %}

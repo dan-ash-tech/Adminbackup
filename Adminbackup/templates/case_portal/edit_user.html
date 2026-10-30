@@ -1,0 +1,32 @@
+{% extends "case_portal/base.html" %}
+
+{% block title %}Edit user{% endblock %}
+
+{% block content %}
+  <div class="workspace-page">
+    <div class="workspace-header">
+      <div>
+        <p class="eyebrow">Administration</p>
+        <h1>Edit user</h1>
+        <p class="intro">Update account details and access for <strong>{{ managed_user.username }}</strong>.</p>
+      </div>
+    </div>
+
+  <form class="workspace-form" method="post" novalidate>
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    <section class="workspace-card">
+      {% for field in form %}
+        <div class="field">
+          {{ field.label_tag }}{{ field }}{{ field.errors }}
+          {% if field.help_text %}<span class="help">{{ field.help_text }}</span>{% endif %}
+        </div>
+      {% endfor %}
+    </section>
+    <div class="actions">
+      <button class="btn btn-primary" type="submit">Save user</button>
+      <a class="btn btn-outline-secondary button button-secondary" href="{% url 'manage-users' %}">Cancel</a>
+    </div>
+  </form>
+  </div>
+{% endblock %}

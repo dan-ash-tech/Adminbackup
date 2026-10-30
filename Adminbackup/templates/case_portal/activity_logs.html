@@ -1,0 +1,127 @@
+{% extends "case_portal/base.html" %}
+
+{% block title %}Activity Logs{% endblock %}
+
+{% block content %}
+  <div class="activity-page">
+    <div class="activity-header">
+      <div>
+        <p class="eyebrow">System oversight</p>
+        <h1>Activity logs</h1>
+        <p class="intro">Review who changed records, what action was performed, and when it was recorded.</p>
+      </div>
+      <div class="form-page-header-meta">Read-only audit history</div>
+    </div>
+
+    <section class="activity-summary" aria-label="Activity summary">
+      <article class="activity-summary-card">
+        <p>Total activities</p>
+        <strong>{{ activity_total }}</strong>
+      </article>
+      <article class="activity-summary-card">
+        <p>Today's activities</p>
+        <strong>{{ activity_today }}</strong>
+      </article>
+      <article class="activity-summary-card">
+        <p>Recent changes</p>
+        <strong>{{ activity_recent_changes }}</strong>
+      </article>
+    </section>
+
+    <form class="activity-filters" method="get">
+      <div class="field">
+        <label for="activity-search">Search activity</label>
+        <input id="activity-search" type="search" name="q" value="{{ search_query }}" placeholder="Search user, record, or activity details">
+      </div>
+      <div class="field">
+        <label for="activity-user">User</label>
+        <select id="activity-user" name="user">
+          <option value="">All users</option>
+          {% for activity_user in activity_users %}
+            <option value="{{ activity_user.pk }}"{% if selected_user == activity_user.pk|stringformat:"s" %} selected{% endif %}>{{ activity_user.username }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="activity-action">Action type</label>
+        <select id="activity-action" name="action">
+          <option value="">All actions</option>
+          {% for action_value, action_label in activity_actions %}
+            <option value="{{ action_value }}"{% if selected_action == action_value %} selected{% endif %}>{{ action_label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="activity-date-from">From date</label>
+        <input id="activity-date-from" type="date" name="date_from" value="{{ date_from }}">
+      </div>
+      <div class="field">
+        <label for="activity-date-to">To date</label>
+        <input id="activity-date-to" type="date" name="date_to" value="{{ date_to }}">
+      </div>
+      <div class="activity-filter-actions">
+        <button class="btn btn-primary" type="submit">Filter</button>
+        <a class="btn btn-outline-secondary button button-secondary" href="{% url 'activity-logs' %}">Clear</a>
+      </div>
+    </form>
+
+    <div class="activity-table-scroll">
+      <table class="activity-table">
+        <thead>
+          <tr>
+            <th scope="col">Username</th>
+            <th scope="col">Action</th>
+            <th scope="col">Affected record</th>
+            <th scope="col">Date and time</th>
+            <th scope="col">Activity status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for log in activity_logs %}
+            <tr>
+              <td>
+                <span class="activity-user">
+                  <span class="avatar avatar-sm" aria-hidden="true">{{ log.user.username|default:"S"|first|upper }}</span>
+                  {{ log.user.username|default:"System" }}
+                </span>
+              </td>
+              <td>
+                {% if log.action_flag == 1 %}
+                  <span class="activity-action activity-action-add">Added</span>
+                {% elif log.action_flag == 2 %}
+                  <span class="activity-action activity-action-change">Changed</span>
+                {% else %}
+                  <span class="activity-action activity-action-delete">Deleted</span>
+                {% endif %}
+              </td>
+              <td>
+                <span class="activity-record">{{ log.object_repr|default:"System activity" }}</span>
+                <small>{{ log.content_type.app_label }}.{{ log.content_type.model }}</small>
+              </td>
+              <td class="activity-date">
+                {{ log.action_time|date:"M j, Y" }}
+                <small>{{ log.action_time|date:"H:i" }}</small>
+              </td>
+              <td><span class="activity-status">Recorded</span></td>
+            </tr>
+          {% empty %}
+            <tr><td class="activity-empty" colspan="5">No activity matches the selected filters.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="activity-pagination">
+      <span>Showing {{ page_obj.start_index|default:0 }}–{{ page_obj.end_index|default:0 }} of {{ page_obj.paginator.count }} activities</span>
+      <div class="btn-list">
+        {% if page_obj.has_previous %}
+          <a class="btn btn-outline-secondary button button-secondary" href="?q={{ search_query|urlencode }}&user={{ selected_user|urlencode }}&action={{ selected_action|urlencode }}&date_from={{ date_from|urlencode }}&date_to={{ date_to|urlencode }}&page={{ page_obj.previous_page_number }}">Previous</a>
+        {% endif %}
+        {% if page_obj.has_next %}
+          <a class="btn btn-outline-secondary button button-secondary" href="?q={{ search_query|urlencode }}&user={{ selected_user|urlencode }}&action={{ selected_action|urlencode }}&date_from={{ date_from|urlencode }}&date_to={{ date_to|urlencode }}&page={{ page_obj.next_page_number }}">Next</a>
+        {% endif %}
+      </div>
+    </div>
+    <p class="form-note">Audit records are read-only. Only administrators can view this dashboard; activity entries cannot be edited or deleted here.</p>
+  </div>
+{% endblock %}

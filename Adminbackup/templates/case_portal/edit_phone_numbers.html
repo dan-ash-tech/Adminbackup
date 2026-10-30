@@ -1,0 +1,41 @@
+{% extends "case_portal/base.html" %}
+
+{% block title %}Edit phone numbers{% endblock %}
+
+{% block content %}
+  <div class="workspace-page">
+    <div class="workspace-header">
+      <div>
+        <p class="eyebrow">Target workspace</p>
+        <h1>Edit phone numbers</h1>
+        <p class="intro">Update the existing phone numbers for <strong>{{ case_record.code }}</strong>. Other target details are managed from Edit target.</p>
+      </div>
+      <div class="workspace-header-actions">
+        <a class="btn btn-outline-secondary button button-secondary" href="{% url 'view-target' case_record.pk %}">View target</a>
+      </div>
+    </div>
+
+  <form class="workspace-form" method="post" novalidate>
+    {% csrf_token %}
+    {{ formset.management_form }}
+    {{ formset.non_form_errors }}
+    <section class="workspace-card">
+      <h2>Phone numbers</h2>
+      {% for phone_form in formset %}
+        {% for hidden in phone_form.hidden_fields %}{{ hidden }}{% endfor %}
+        {% for field in phone_form.visible_fields %}
+          <div class="field">
+            {{ field.label_tag }}{{ field }}{{ field.errors }}
+          </div>
+        {% endfor %}
+      {% empty %}
+        <p class="empty-state">This target has no existing phone numbers.</p>
+      {% endfor %}
+    </section>
+    <div class="actions">
+      <button class="btn btn-primary" type="submit">Save phone numbers</button>
+      <a class="btn btn-outline-secondary button button-secondary" href="{% url 'dashboard' %}">Cancel</a>
+    </div>
+  </form>
+  </div>
+{% endblock %}

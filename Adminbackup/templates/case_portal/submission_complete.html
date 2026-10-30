@@ -1,0 +1,20 @@
+
+
+
+{% extends "case_portal/base.html" %}
+
+{% block title %}Record submitted{% endblock %}
+
+{% block content %}
+  <div class="workspace-page">
+    <section class="workspace-card">
+      <p class="eyebrow">Target workspace</p>
+      <h1>Target saved</h1>
+      <p class="intro">The target record has been saved successfully.</p>
+      <div class="workspace-header-actions">
+        <a class="button" href="{% url 'dashboard' %}">Back to dashboard</a>
+        <a class="button button-secondary" href="{% url 'submit-case' %}">Add another target</a>
+      </div>
+    </section>
+  </div>
+{% endblock %}

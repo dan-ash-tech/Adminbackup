@@ -1,0 +1,95 @@
+{% extends "case_portal/base.html" %}
+
+{% block title %}View {{ case_record.code }}{% endblock %}
+
+{% block content %}
+  <div class="record-view-page">
+    <div class="form-page-header">
+      <div>
+        <p class="eyebrow">Target workspace</p>
+        <h1>{{ case_record.code }}</h1>
+        <p class="intro">Read-only target details and monitoring history.</p>
+      </div>
+      <div class="form-page-header-meta">View record</div>
+    </div>
+
+    <div class="record-view-grid">
+      <section class="record-view-card">
+        <h2>Target details</h2>
+        <dl class="record-detail-list">
+          <div><dt>S/N</dt><dd>{{ case_record.serial_number }}</dd></div>
+          <div><dt>Status</dt><dd><span class="status-badge{% if case_record.monitoring_status == 'Current monitored' %} status-badge-current{% else %} status-badge-stopped{% endif %}">{{ case_record.monitoring_status }}</span></dd></div>
+          <div><dt>First name</dt><dd>{{ case_record.first_name }}</dd></div>
+          <div><dt>Last name</dt><dd>{{ case_record.last_name }}</dd></div>
+          <div><dt>Authorizer</dt><dd>{{ case_record.authorizer|default:"-" }}</dd></div>
+          <div><dt>Case type</dt><dd>{{ case_record.case_type|default:"-" }}</dd></div>
+          <div><dt>Monitoring started</dt><dd>{{ case_record.start_date|date:"Y-m-d" }}</dd></div>
+          <div><dt>Assigned users</dt><dd>{{ case_record.assigned_users_display }}</dd></div>
+        </dl>
+        {% if case_record.remarks %}
+          <h2 class="mt-4">Remarks</h2>
+          <p class="mb-0">{{ case_record.remarks|linebreaksbr }}</p>
+        {% endif %}
+      </section>
+
+      <section class="record-view-card">
+        <h2>Phone numbers</h2>
+        <ul class="record-view-list">
+          {% for phone in case_record.phone_numbers.all %}
+            <li>{% if phone.label %}<strong>{{ phone.label }}:</strong> {% endif %}{{ phone.number }}</li>
+          {% empty %}
+            <li>No phone numbers recorded.</li>
+          {% endfor %}
+        </ul>
+
+        <h2 class="mt-4">Reports</h2>
+        <ul class="record-view-list">
+          {% for report in case_record.attached_reports.all %}
+            <li><a href="{% url 'private-attached-report' case_record.pk report.pk %}">Download {{ report }}</a></li>
+          {% endfor %}
+          {% if case_record.attached_document %}
+            <li><a href="{% url 'private-target-file' case_record.pk 'attached_document' %}">Download attached report</a></li>
+          {% endif %}
+          {% if not case_record.attached_reports.all and not case_record.attached_document %}
+            <li>No reports recorded.</li>
+          {% endif %}
+        </ul>
+      </section>
+
+      <section class="record-view-card">
+        <h2>Monitoring history</h2>
+        <ul class="record-view-list">
+          {% for period in case_record.monitoring_periods.all %}
+            <li>
+              <strong>{{ period.started_on|date:"Y-m-d" }}</strong>
+              to
+              <strong>{% if period.terminated_on %}{{ period.terminated_on|date:"Y-m-d" }}{% else %}Current{% endif %}</strong>
+              {% if period.remarks %}<br><small>{{ period.remarks|linebreaksbr }}</small>{% endif %}
+            </li>
+          {% empty %}
+            <li>No monitoring history recorded.</li>
+          {% endfor %}
+        </ul>
+        <div class="record-view-actions">
+          {% if case_record.personal_identifications %}
+            <a class="btn btn-outline-secondary button button-secondary" href="{% url 'private-target-file' case_record.pk 'personal_identifications' %}">View image</a>
+          {% endif %}
+          {% if can_edit_targets %}
+            <a class="btn btn-primary button" href="{% url 'edit-target' case_record.pk %}">Edit target</a>
+          {% elif can_edit_phone_numbers %}
+            <a class="btn btn-primary button" href="{% url 'edit-target-phone-numbers' case_record.pk %}">Edit phone numbers</a>
+          {% endif %}
+          {% if can_delete_targets %}
+            <form method="post" action="{% url 'delete-target' case_record.pk %}" onsubmit="return confirm('Delete this target? This cannot be undone.');">
+              {% csrf_token %}
+              <input type="hidden" name="status" value="{{ status }}">
+              <input type="hidden" name="q" value="{{ search_query }}">
+              <button class="target-remove-button" type="submit">Delete target</button>
+            </form>
+          {% endif %}
+          <a class="btn btn-outline-secondary button button-secondary" href="{% url 'dashboard' %}?status={{ status }}{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}">Back to targets</a>
+        </div>
+      </section>
+    </div>
+  </div>
+{% endblock %}

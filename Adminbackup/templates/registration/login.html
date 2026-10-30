@@ -1,0 +1,30 @@
+{% extends "case_portal/base.html" %}
+
+{% block title %}Sign in{% endblock %}
+
+{% block content %}
+  <div class="workspace-page">
+    <div class="workspace-header">
+      <div>
+        <p class="eyebrow">Target monitoring system</p>
+        <h1>Sign in</h1>
+        <p class="intro">Use your assigned account to continue.</p>
+      </div>
+    </div>
+  <form class="workspace-form" method="post" novalidate>
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+    <section class="workspace-card">
+      <div class="fields">
+        {% for field in form %}
+          <div class="field">
+            {{ field.label_tag }}{{ field }}{{ field.errors }}
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+    <div class="actions"><button class="btn btn-primary" type="submit">Sign in</button></div>
+  </form>
+  </div>
+{% endblock %}

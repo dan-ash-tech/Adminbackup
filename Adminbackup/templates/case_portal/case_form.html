@@ -1,0 +1,138 @@
+{% extends "case_portal/base.html" %}
+
+{% block title %}Submit Target Record{% endblock %}
+
+{% block content %}
+  <div class="form-page">
+    <div class="form-page-header">
+      <div>
+        <p class="eyebrow">Target workspace</p>
+        <h1>Add target</h1>
+        <p class="intro">Create a target record, set its monitoring start date, and attach the information your team needs.</p>
+      </div>
+      <div class="form-page-header-meta">New record</div>
+    </div>
+  <form method="post" enctype="multipart/form-data" novalidate>
+    {% csrf_token %}
+    {{ case_form.non_field_errors }}
+    <section class="section card form-card">
+      <div class="section-heading"><span class="section-kicker">01</span><h2>Target details</h2></div>
+      <p class="section-description">Enter the identity, assignment, and monitoring start information.</p>
+      <div class="fields">
+        {% for field in case_form %}
+          <div class="field{% if field.name == 'personal_identifications' %} field-wide{% endif %}">
+            {% if field.is_hidden %}
+              {{ field }}
+            {% else %}
+              {{ field.label_tag }}
+              {% if field.name == 'assigned_users' %}
+                <details class="user-assignment-dropdown">
+                  <summary>Select one or more users</summary>
+                  <div class="user-assignment-options">{{ field }}</div>
+                </details>
+              {% else %}
+                {{ field }}
+              {% endif %}
+              {% if field.help_text %}<span class="help">{{ field.help_text }}</span>{% endif %}
+              {{ field.errors }}
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="section card form-card">
+      <div class="section-heading">
+        <span class="section-kicker">02</span><h2>Reports</h2>
+        <p class="intro">Upload one or more Word reports. Use “Add another report” to attach additional reports.</p>
+      </div>
+      {{ report_formset.management_form }}
+      {{ report_formset.non_form_errors }}
+      <div id="report-rows">
+        {% for report_form in report_formset %}
+          <div class="phone-row">
+            {% for hidden in report_form.hidden_fields %}{{ hidden }}{% endfor %}
+            {% for field in report_form.visible_fields %}
+              <div class="field field-wide">
+                {{ field.label_tag }}{{ field }}{{ field.errors }}
+              </div>
+            {% endfor %}
+          </div>
+        {% endfor %}
+      </div>
+      <template id="empty-report-row">
+        <div class="phone-row">
+          {% for hidden in report_formset.empty_form.hidden_fields %}{{ hidden }}{% endfor %}
+          {% for field in report_formset.empty_form.visible_fields %}
+            <div class="field field-wide">
+              {{ field.label_tag }}{{ field }}{{ field.errors }}
+            </div>
+          {% endfor %}
+        </div>
+      </template>
+      <button class="btn btn-outline-secondary button-secondary" id="add-report" type="button">Add another report</button>
+    </section>
+
+    <section class="section card form-card">
+      <div class="section-heading">
+        <span class="section-kicker">03</span><h2>Phone numbers</h2>
+        <p class="intro">Add one or more phone numbers for this target. Labels are optional; use “Add another number” for additional numbers.</p>
+      </div>
+      {{ phone_formset.management_form }}
+      {{ phone_formset.non_form_errors }}
+      <div id="phone-rows">
+        {% for phone_form in phone_formset %}
+          <div class="phone-row">
+            {% for hidden in phone_form.hidden_fields %}{{ hidden }}{% endfor %}
+            {% for field in phone_form.visible_fields %}
+              <div class="field">
+                {{ field.label_tag }}{{ field }}{{ field.errors }}
+              </div>
+            {% endfor %}
+          </div>
+        {% endfor %}
+      </div>
+      <template id="empty-phone-row">
+        <div class="phone-row">
+          {% for hidden in phone_formset.empty_form.hidden_fields %}{{ hidden }}{% endfor %}
+          {% for field in phone_formset.empty_form.visible_fields %}
+            <div class="field">
+              {{ field.label_tag }}{{ field }}{{ field.errors }}
+            </div>
+          {% endfor %}
+        </div>
+      </template>
+      <button class="btn btn-outline-secondary button-secondary" id="add-phone" type="button">Add another number</button>
+    </section>
+
+    <p class="form-note">Identification images are sensitive. Upload only records you are authorized to submit.</p>
+    <div class="form-actions">
+      <button class="btn btn-primary" type="submit">Create target</button>
+    </div>
+  </form>
+  </div>
+  <script>
+    (() => {
+      const container = document.getElementById("phone-rows");
+      const template = document.getElementById("empty-phone-row");
+      const totalForms = document.getElementById("id_phone_numbers-TOTAL_FORMS");
+      document.getElementById("add-phone").addEventListener("click", () => {
+        const index = Number(totalForms.value);
+        const row = template.innerHTML.replaceAll("__prefix__", index);
+        container.insertAdjacentHTML("beforeend", row);
+        totalForms.value = index + 1;
+      });
+    })();
+    (() => {
+      const container = document.getElementById("report-rows");
+      const template = document.getElementById("empty-report-row");
+      const totalForms = document.getElementById("id_reports-TOTAL_FORMS");
+      document.getElementById("add-report").addEventListener("click", () => {
+        const index = Number(totalForms.value);
+        const row = template.innerHTML.replaceAll("__prefix__", index);
+        container.insertAdjacentHTML("beforeend", row);
+        totalForms.value = index + 1;
+      });
+    })();
+  </script>
+{% endblock %}

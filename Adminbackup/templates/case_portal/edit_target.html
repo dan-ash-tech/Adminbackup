@@ -1,0 +1,166 @@
+{% extends "case_portal/base.html" %}
+
+{% block title %}Edit {{ case_record.code }}{% endblock %}
+
+{% block content %}
+  <div class="form-page">
+    <div class="form-page-header">
+      <div>
+        <p class="eyebrow">Target workspace</p>
+        <h1>Edit target <span class="muted-heading">{{ case_record.code }}</span></h1>
+        <p class="intro">Update target details, monitoring periods, phone numbers, assignments, and reports in one place.</p>
+      </div>
+      <div class="form-page-header-meta">Editing record</div>
+    </div>
+
+  <form method="post" enctype="multipart/form-data" novalidate>
+    {% csrf_token %}
+    {{ case_form.non_field_errors }}
+
+    <section class="section card form-card">
+      <div class="section-heading"><span class="section-kicker">01</span><h2>Target details</h2></div>
+      <p class="section-description">Update identity, assignment, and general target information.</p>
+      <div class="fields">
+        {% for field in case_form %}
+          <div class="field{% if field.name == 'personal_identifications' or field.name == 'case_type' or field.name == 'remarks' %} field-wide{% endif %}">
+            {% if field.is_hidden %}
+              {{ field }}
+            {% else %}
+              {{ field.label_tag }}
+              {% if field.name == 'assigned_users' %}
+                <details class="user-assignment-dropdown"{% if field.value %} open{% endif %}>
+                  <summary>Manage assigned users</summary>
+                  <div class="user-assignment-options">{{ field }}</div>
+                </details>
+              {% else %}
+                {{ field }}
+              {% endif %}
+              {% if field.help_text %}<span class="help">{{ field.help_text }}</span>{% endif %}
+              {{ field.errors }}
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="section card form-card">
+      <div class="section-heading">
+        <span class="section-kicker">02</span><h2>Monitoring history</h2>
+        <p class="intro">Each row is one monitoring period. Leave the termination date empty for the current period. Add a new row every time the target is reprovisioned.</p>
+      </div>
+      {{ period_formset.management_form }}
+      {{ period_formset.non_form_errors }}
+      <div id="period-rows">
+        {% for period_form in period_formset %}
+          <div class="phone-row monitoring-period-row">
+            {% for hidden in period_form.hidden_fields %}{{ hidden }}{% endfor %}
+            {% for field in period_form.visible_fields %}
+              <div class="field{% if field.name == 'DELETE' %} phone-delete{% endif %}">
+                {{ field.label_tag }}{{ field }}{{ field.errors }}
+              </div>
+            {% endfor %}
+          </div>
+        {% endfor %}
+      </div>
+      <template id="empty-period-row">
+        <div class="phone-row monitoring-period-row">
+          {% for hidden in period_formset.empty_form.hidden_fields %}{{ hidden }}{% endfor %}
+          {% for field in period_formset.empty_form.visible_fields %}
+            <div class="field{% if field.name == 'DELETE' %} phone-delete{% endif %}">
+              {{ field.label_tag }}{{ field }}{{ field.errors }}
+            </div>
+          {% endfor %}
+        </div>
+      </template>
+      <button class="btn btn-outline-secondary button-secondary" id="add-period" type="button">Add monitoring period</button>
+    </section>
+
+    <section class="section card form-card">
+      <div class="section-heading">
+        <span class="section-kicker">03</span><h2>Phone numbers</h2>
+        <p class="intro">Edit labels and numbers, remove old numbers, or add another number.</p>
+      </div>
+      {{ phone_formset.management_form }}
+      {{ phone_formset.non_form_errors }}
+      <div id="phone-rows">
+        {% for phone_form in phone_formset %}
+          <div class="phone-row">
+            {% for hidden in phone_form.hidden_fields %}{{ hidden }}{% endfor %}
+            {% for field in phone_form.visible_fields %}
+              <div class="field{% if field.name == 'DELETE' %} phone-delete{% endif %}">
+                {{ field.label_tag }}{{ field }}{{ field.errors }}
+              </div>
+            {% endfor %}
+          </div>
+        {% endfor %}
+      </div>
+      <template id="empty-phone-row">
+        <div class="phone-row">
+          {% for hidden in phone_formset.empty_form.hidden_fields %}{{ hidden }}{% endfor %}
+          {% for field in phone_formset.empty_form.visible_fields %}
+            <div class="field{% if field.name == 'DELETE' %} phone-delete{% endif %}">
+              {{ field.label_tag }}{{ field }}{{ field.errors }}
+            </div>
+          {% endfor %}
+        </div>
+      </template>
+      <button class="btn btn-outline-secondary button-secondary" id="add-phone" type="button">Add another number</button>
+    </section>
+
+    <section class="section card form-card">
+      <div class="section-heading">
+        <span class="section-kicker">04</span><h2>Reports</h2>
+        <p class="intro">Keep the existing reports, replace a file, remove it, or attach another Word report.</p>
+      </div>
+      {{ report_formset.management_form }}
+      {{ report_formset.non_form_errors }}
+      <div id="report-rows">
+        {% for report_form in report_formset %}
+          <div class="phone-row">
+            {% for hidden in report_form.hidden_fields %}{{ hidden }}{% endfor %}
+            {% for field in report_form.visible_fields %}
+              <div class="field{% if field.name == 'DELETE' %} phone-delete{% endif %}">
+                {{ field.label_tag }}{{ field }}{{ field.errors }}
+              </div>
+            {% endfor %}
+          </div>
+        {% endfor %}
+      </div>
+      <template id="empty-report-row">
+        <div class="phone-row">
+          {% for hidden in report_formset.empty_form.hidden_fields %}{{ hidden }}{% endfor %}
+          {% for field in report_formset.empty_form.visible_fields %}
+            <div class="field{% if field.name == 'DELETE' %} phone-delete{% endif %}">
+              {{ field.label_tag }}{{ field }}{{ field.errors }}
+            </div>
+          {% endfor %}
+        </div>
+      </template>
+      <button class="btn btn-outline-secondary button-secondary" id="add-report" type="button">Add another report</button>
+    </section>
+
+    <div class="form-actions">
+      <a class="btn btn-outline-secondary button-secondary" href="{% url 'dashboard' %}">Cancel</a>
+      <button class="btn btn-primary" type="submit">Save changes</button>
+    </div>
+  </form>
+  </div>
+
+  <script>
+    (() => {
+      const addRows = (containerId, templateId, buttonId, totalId) => {
+        const container = document.getElementById(containerId);
+        const template = document.getElementById(templateId);
+        const totalForms = document.getElementById(totalId);
+        document.getElementById(buttonId).addEventListener("click", () => {
+          const index = Number(totalForms.value);
+          container.insertAdjacentHTML("beforeend", template.innerHTML.replaceAll("__prefix__", index));
+          totalForms.value = index + 1;
+        });
+      };
+      addRows("phone-rows", "empty-phone-row", "add-phone", "id_phone_numbers-TOTAL_FORMS");
+      addRows("report-rows", "empty-report-row", "add-report", "id_reports-TOTAL_FORMS");
+      addRows("period-rows", "empty-period-row", "add-period", "id_monitoring_periods-TOTAL_FORMS");
+    })();
+  </script>
+{% endblock %}

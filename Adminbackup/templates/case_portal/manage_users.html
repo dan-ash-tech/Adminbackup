@@ -1,0 +1,59 @@
+{% extends "case_portal/base.html" %}
+
+{% block title %}Manage users{% endblock %}
+
+{% block content %}
+  <div class="workspace-page">
+    <div class="workspace-header">
+      <div>
+        <p class="eyebrow">Administration</p>
+        <h1>Manage users</h1>
+        <p class="intro">Manage account details, passwords, and access roles. Administrator accounts are protected.</p>
+      </div>
+      <div class="workspace-header-actions">
+        <a class="btn btn-primary button" href="{% url 'create-users' %}">Create user</a>
+      </div>
+    </div>
+
+  {% if messages %}
+    {% for message in messages %}
+      <p class="notice {{ message.tags }}" role="status">{{ message }}</p>
+    {% endfor %}
+  {% endif %}
+
+  <div class="workspace-table-scroll">
+    <table class="workspace-table">
+      <thead>
+        <tr>
+          <th scope="col">Username</th>
+          <th scope="col">Status</th>
+          <th scope="col">Account type</th>
+          <th scope="col">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for managed_user in managed_users %}
+          <tr>
+            <td><strong>{{ managed_user.username }}</strong></td>
+            <td><span class="account-state{% if not managed_user.is_active %} inactive{% endif %}">{% if managed_user.is_active %}Active{% else %}Inactive{% endif %}</span></td>
+            <td>{{ managed_user.account_role }}</td>
+            <td>
+              {% if not managed_user.is_superuser %}
+                <div class="table-actions">
+                  <a href="{% url 'edit-user' managed_user.pk %}">Edit</a>
+                  <a href="{% url 'reset-user-password' managed_user.pk %}">Reset password</a>
+                  <a href="{% url 'delete-user' managed_user.pk %}">Delete</a>
+                </div>
+              {% else %}
+                <span class="account-state protected">Protected</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td class="empty-state" colspan="4">No user accounts found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  </div>
+{% endblock %}
