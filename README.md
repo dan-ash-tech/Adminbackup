@@ -1,36 +1,86 @@
 # Target Records
 
-A Django application for submitting and viewing target records. Authenticated users can view current and stopped targets; authorized staff can add and edit records. A target returns to current monitoring when its reprovision date is on or after its latest termination date.
+A Django application for recording and monitoring target records on a local network. All app code lives in `Adminbackup/`; project settings are in `config/`.
 
-The current and stopped lists are status-filtered views of the same target records, so setting a termination date moves a target to the stopped list and reprovisioning it moves it back without duplicating or losing its record. SQLite continues to use the existing `db.sqlite3` file so existing project data is preserved. S/N is generated automatically from the record ID and targets are listed in that order. Target records include S/N, call-sign, one or more labeled phone numbers, authorizer, case type, assigned user, service dates, image, optional Word reports, and remarks for documenting why a target was stopped. Remarks appear in the stopped-target list and can be edited with the target record. Add multiple reports with **Add another report** when submitting a target. Authorized users can download reports from the dashboard; report preview and conversion features are not provided. At the bottom of the dashboard, choose current targets, stopped targets, or both before exporting to Excel. The export contains only records the signed-in user is authorized to view and is independent of the dashboard's selected status tab and search. Targets with multiple phone numbers have one spreadsheet row per number; target details appear only on the first number's row, and targets without phone numbers still receive one row.
+## Features
 
-The dashboard shows 25 targets per page and preserves the selected status and search when moving between pages. Tabler Core 1.6.1 is bundled locally at `Adminbackup/static/case_portal/vendor/tabler.min.css`, so the interface does not depend on a runtime CDN connection. Its MIT license is included alongside the stylesheet.
+- **Targets** have an automatic S/N, call-sign, labeled phone numbers, authorizer, case type, assigned users, an image, Word reports (`.doc`/`.docx`), remarks, and a monitoring history. A target is *current* while its latest monitoring period is open, and *stopped* once that period has a termination date. S/N values are renumbered when a target is deleted.
+- **Dashboard** with current/stopped tabs, search, 25 targets per page, and an Excel export of the records the signed-in user may see, with columns of their choice.
+- **Activity log** (superusers only) of target and user changes.
+- Tabler Core 1.6.1 is bundled at `Adminbackup/static/case_portal/vendor/`, so no CDN is needed.
 
-## Local setup (Windows PowerShell)
+## Roles
+
+| Role | Sees | Can change |
+|---|---|---|
+| Superuser | All targets | Everything, including users and assignments |
+| View all | All targets and their files | Nothing |
+| Target editor | Only targets assigned to them | Add, edit and delete those targets and their phone numbers |
+| Read-only viewer | Only targets assigned to them | Nothing |
+
+These rules are enforced in one place (`CaseRecord.objects.visible_to(user)`) and apply to the dashboard, target pages, file downloads, deletes, the Excel export and `/admin/`. Only superusers assign targets. A target editor who adds a target cannot see it until a superuser assigns it to them.
+
+Superusers manage accounts at **Manage users** (`/users/`). Accounts are **deactivated, never deleted**, so their activity history is kept. Reactivate an account from **Edit** by checking *Active*.
+
+Per-user dashboard headings live in `USER_DASHBOARD_TEXT` in `Adminbackup/views.py`, keyed by lowercase username.
+
+## Security
+
+- Logins lock for 15 minutes after 5 failed attempts per username and IP address. This covers both the portal and `/admin/`. Superusers can clear a lockout early with `python manage.py axes_reset`.
+- Sessions end when the browser closes or after 8 hours of inactivity.
+- Uploads are limited to 10 MB. Files are removed from disk when their target or report is deleted or replaced.
+- Uploaded files are never served from public URLs. Every download checks the record access rules.
+- These limits can be changed in `.env` (see `.env.example`).
+
+## Deployment (PostgreSQL)
+
+`deploy.sh` sets up or updates a server and can be run repeatedly. It works on Linux and on Windows in Git Bash. Install Python 3.12+ and PostgreSQL first, and make sure `psql` is on the `PATH`.
+
+```bash
+# First deployment, moving the existing SQLite data into PostgreSQL:
+./deploy.sh --hosts 192.168.1.20 --import-sqlite db.sqlite3 --serve
+
+# Updates after pulling new code:
+./deploy.sh --serve
+```
+
+On first run the script:
+
+1. Creates `.venv` and installs `requirements.txt`.
+2. Generates `.env` with a random secret key and database password.
+3. Creates a PostgreSQL role and database with limited privileges. It asks for the `postgres` password, or use `--pg-admin-sudo` on Linux.
+4. Runs migrations and, with `--import-sqlite`, copies all data across. The import refuses to run if the target database already has data, never modifies the SQLite file, and checks row counts afterwards.
+5. Collects static files and runs `check --deploy`.
+6. Prompts for an administrator account if none exists.
+
+`--serve` then starts the app with Waitress on port 8000. Run `./deploy.sh --help` for all options.
+
+**Copy `media/` to the server as well.** Uploaded images and reports are files on disk, not database rows. To keep Waitress running after logout or a reboot, register it as a service: systemd on Linux, or NSSM or Task Scheduler on Windows.
+
+PostgreSQL should only accept connections from the app server. Keep `listen_addresses = 'localhost'` in `postgresql.conf` unless the database runs on a separate machine.
+
+## Local development
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 Copy-Item .env.example .env
-python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
-# Put the generated key in .env; for local development set:
+python -c "import secrets; print(secrets.token_urlsafe(50))"
+# Put the key in .env, then for local development set:
 # DJANGO_DEBUG=true
 # DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
-# DJANGO_SECURE_SSL_REDIRECT=false
-# DJANGO_SESSION_COOKIE_SECURE=false
-# DJANGO_CSRF_COOKIE_SECURE=false
+# DJANGO_DB_ENGINE=sqlite
 python manage.py migrate
 python manage.py createsuperuser
 python manage.py runserver
 ```
 
-Open `http://127.0.0.1:8000/admin/` to manage accounts and records. The client dashboard is at `http://127.0.0.1:8000/dashboard/` and is also available at `/account/`; login is at `http://127.0.0.1:8000/accounts/login/`.
+Run the tests with `python manage.py test Adminbackup.tests`.
 
-The superuser can create one user account at a time at `/users/new/`, choosing read-only access to assigned targets, read-only access to all targets, team-leader access, or target-editor permissions. To create the team leader account, use the username `team_leader` and assign the **Team leader** permission; set the password in that form. The view-all role can view every record and its files/reports but cannot change records. Team leaders can view every target and its files/reports and update existing phone-number values only; they cannot add or remove numbers or edit any other target details. Target editors receive target and phone-number add, view, change, and delete permissions; they do not receive user-management or superuser access. Use **Manage users** in the dashboard navigation (or `/users/`) to view accounts, edit user details and access level, reset passwords, or delete non-admin accounts. Superuser accounts are listed but protected from these actions. Per-user dashboard headings and statements are configured in `USER_DASHBOARD_TEXT` in `Adminbackup/views.py`, keyed by username; edit each user's entry directly in that mapping. Entries for the existing users `passy`, `user1`, `user2`, and `user3` are provided. Add another entry when you create a new account. Users not listed there see the default dashboard text. Superusers can assign users when creating a target or from the record in Django admin; only superusers can change this assignment. Each target can be assigned to at most one user. Superusers and view-all users, including team leaders, see all targets on their dashboard. Assigned users see only targets assigned to them. Viewers can access authorized targets' uploaded images and reports.
+## Data safety
 
-## Configuration and data safety
-
-The app loads `.env` from the project root for local development; environment variables supplied by the deployment platform take precedence. For local development, copy `.env.example` to `.env`, generate a unique `DJANGO_SECRET_KEY` using the command above, and set the documented local values. The app refuses to start if the secret is missing or still the example placeholder; no secret key is embedded in source code. Production fails closed: `DEBUG` defaults to `false` and `DJANGO_ALLOWED_HOSTS` must contain the actual production hostnames. HTTPS redirect and secure session/CSRF cookies default to enabled when `DEBUG=false`; configure a valid TLS certificate at the hosting platform or web server, because Django does not provision certificates. Set `DJANGO_CSRF_TRUSTED_ORIGINS` to the deployment's HTTPS origins when needed. Run `python manage.py check --deploy` against the production environment before launch. Leave HSTS disabled until HTTPS has been verified, since browsers may remember the policy. Keep `.env`, database credentials, `db.sqlite3`, and `media/` out of source control. This project currently uses SQLite, which has no database password; if switching to a password-authenticated database, source its credentials from the deployment's secret environment/configuration, not from source code. The media directory may contain personal identification images and attached client documents; keep it in protected storage and restrict access. Uploaded files are not served from public `/media/` URLs; use the authenticated dashboard links, which apply per-record permissions.
-
-The development server is for local testing only, not public hosting.
+- Keep `.env`, database credentials, `db.sqlite3` and `media/` out of source control (already in `.gitignore`).
+- `media/` holds identification images and reports, so restrict who can read it on the server.
+- Back up both the PostgreSQL database (`pg_dump`) and `media/`. A database backup alone does not include the files.
+- Traffic is plain HTTP unless HTTPS is set up. On a shared network, put a TLS proxy (for example Caddy or nginx with an internal certificate) in front of Waitress and run `deploy.sh` with `--https`.

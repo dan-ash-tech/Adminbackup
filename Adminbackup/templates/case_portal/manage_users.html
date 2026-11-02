@@ -42,7 +42,7 @@
                 <div class="table-actions">
                   <a href="{% url 'edit-user' managed_user.pk %}">Edit</a>
                   <a href="{% url 'reset-user-password' managed_user.pk %}">Reset password</a>
-                  <a href="{% url 'delete-user' managed_user.pk %}">Delete</a>
+                  {% if managed_user.is_active %}<a href="{% url 'delete-user' managed_user.pk %}">Deactivate</a>{% endif %}
                 </div>
               {% else %}
                 <span class="account-state protected">Protected</span>

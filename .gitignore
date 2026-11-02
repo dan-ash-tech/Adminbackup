@@ -25,3 +25,6 @@ staticfiles/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Application logs (may contain usernames and IP addresses)
+logs/

@@ -1,6 +1,8 @@
 from django import forms
 from django.contrib import admin, messages
 from django.contrib.admin.models import LogEntry
+from django.contrib.auth import get_user_model
+from django.contrib.auth.admin import UserAdmin
 from django.db import models
 from django.shortcuts import redirect
 from django.urls import reverse
@@ -12,6 +14,18 @@ from .models import (
 	CaseReport,
 	TargetMonitoringPeriod,
 )
+
+
+User = get_user_model()
+admin.site.unregister(User)
+
+
+@admin.register(User)
+class NonDeletableUserAdmin(UserAdmin):
+	"""Users are deactivated, never deleted: LogEntry rows cascade with them."""
+
+	def has_delete_permission(self, request, obj=None):
+		return False
 
 
 @admin.register(LogEntry)
@@ -152,7 +166,7 @@ class CaseRecordAdmin(admin.ModelAdmin):
 	filter_horizontal = ("assigned_users",)
 
 	def get_queryset(self, request):
-		return super().get_queryset(request).prefetch_related(
+		return super().get_queryset(request).visible_to(request.user).prefetch_related(
 			"phone_numbers", "assigned_users"
 		).select_related("assigned_user")
 

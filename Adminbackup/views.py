@@ -45,10 +45,10 @@ from .forms import (
 	ViewerUserCreationForm,
 )
 from .models import (
-	CasePhoneNumber,
 	CaseRecord,
 	CaseReport,
 	TargetMonitoringPeriod,
+	can_view_all_records,
 )
 
 
@@ -162,20 +162,30 @@ def _apply_user_role(user, role):
 			user.user_permissions.clear()
 
 
-def _can_view_all_records(user):
+def _dashboard_case_queryset(user):
+	return CaseRecord.objects.visible_to(user)
+
+
+def _can_edit_targets(user):
 	return (
 		user.is_staff
-		and user.has_perm("Adminbackup.view_caserecord")
+		and user.has_perm("Adminbackup.change_caserecord")
+		and user.has_perm("Adminbackup.add_casephonenumber")
+		and user.has_perm("Adminbackup.change_casephonenumber")
+		and user.has_perm("Adminbackup.delete_casephonenumber")
+	)
+
+
+def _can_edit_phone_numbers_only(user):
+	return (
+		user.is_staff
+		and user.has_perm("Adminbackup.change_casephonenumber")
 		and not user.has_perm("Adminbackup.change_caserecord")
 	)
 
 
-def _dashboard_case_queryset(user):
-	if user.is_superuser or _can_view_all_records(user):
-		return CaseRecord.objects.all()
-	return CaseRecord.objects.filter(
-		Q(assigned_users=user) | Q(assigned_user=user)
-	).distinct()
+def _can_delete_targets(user):
+	return user.is_staff and user.has_perm("Adminbackup.delete_caserecord")
 
 
 def _log_target_action(user, case_record, action_flag, message):
@@ -367,22 +377,6 @@ def dashboard(request):
 		request.user.get_username().casefold(),
 		DEFAULT_DASHBOARD_TEXT,
 	)
-	can_edit_targets = (
-		request.user.is_staff
-		and request.user.has_perm("Adminbackup.change_caserecord")
-		and request.user.has_perm("Adminbackup.add_casephonenumber")
-		and request.user.has_perm("Adminbackup.change_casephonenumber")
-		and request.user.has_perm("Adminbackup.delete_casephonenumber")
-	)
-	can_edit_phone_numbers = (
-		request.user.is_staff
-		and request.user.has_perm("Adminbackup.change_casephonenumber")
-		and not request.user.has_perm("Adminbackup.change_caserecord")
-	)
-	can_delete_targets = (
-		request.user.is_staff
-		and request.user.has_perm("Adminbackup.delete_caserecord")
-	)
 	return render(
 		request,
 		"case_portal/dashboard.html",
@@ -401,9 +395,9 @@ def dashboard(request):
 			"show_target_totals": request.user.is_superuser,
 			"current_target_count": current_target_count,
 			"stopped_target_count": stopped_target_count,
-			"can_edit_targets": can_edit_targets,
-			"can_edit_phone_numbers": can_edit_phone_numbers,
-			"can_delete_targets": can_delete_targets,
+			"can_edit_targets": _can_edit_targets(request.user),
+			"can_edit_phone_numbers": _can_edit_phone_numbers_only(request.user),
+			"can_delete_targets": _can_delete_targets(request.user),
 		},
 	)
 
@@ -421,22 +415,6 @@ def view_target(request, case_id):
 		),
 		pk=case_id,
 	)
-	can_edit_targets = (
-		request.user.is_staff
-		and request.user.has_perm("Adminbackup.change_caserecord")
-		and request.user.has_perm("Adminbackup.add_casephonenumber")
-		and request.user.has_perm("Adminbackup.change_casephonenumber")
-		and request.user.has_perm("Adminbackup.delete_casephonenumber")
-	)
-	can_edit_phone_numbers = (
-		request.user.is_staff
-		and request.user.has_perm("Adminbackup.change_casephonenumber")
-		and not request.user.has_perm("Adminbackup.change_caserecord")
-	)
-	can_delete_targets = (
-		request.user.is_staff
-		and request.user.has_perm("Adminbackup.delete_caserecord")
-	)
 	status = request.GET.get("status", "current")
 	if status not in {"current", "stopped"}:
 		status = "current"
@@ -446,9 +424,9 @@ def view_target(request, case_id):
 		"case_portal/view_target.html",
 		{
 			"case_record": case_record,
-			"can_edit_targets": can_edit_targets,
-			"can_edit_phone_numbers": can_edit_phone_numbers,
-			"can_delete_targets": can_delete_targets,
+			"can_edit_targets": _can_edit_targets(request.user),
+			"can_edit_phone_numbers": _can_edit_phone_numbers_only(request.user),
+			"can_delete_targets": _can_delete_targets(request.user),
 			"status": status,
 			"search_query": search_query,
 		},
@@ -625,7 +603,7 @@ def manage_users(request):
 	for managed_user in managed_users:
 		if managed_user.is_superuser:
 			managed_user.account_role = "Administrator"
-		elif _can_view_all_records(managed_user):
+		elif can_view_all_records(managed_user):
 			managed_user.account_role = "View all targets assigned to all users"
 		elif managed_user.is_staff:
 			managed_user.account_role = "Target editor"
@@ -707,15 +685,21 @@ def delete_user(request, user_id):
 
 	user = _managed_viewer_or_404(user_id)
 	if request.method == "POST":
-		username = user.username
-		_log_user_action(
-			request.user,
-			user,
-			DELETION,
-			"User account deleted from the management dashboard.",
-		)
-		user.delete()
-		messages.success(request, f"User {username} deleted.")
+		# Deactivate instead of deleting: LogEntry rows cascade-delete with
+		# their user, so a real delete would erase that user's audit history.
+		# Inactive users are signed out on their next request.
+		if user.is_active:
+			user.is_active = False
+			user.save(update_fields=["is_active"])
+			_log_user_action(
+				request.user,
+				user,
+				CHANGE,
+				"User account deactivated from the management dashboard.",
+			)
+			messages.success(request, f"User {user.username} deactivated.")
+		else:
+			messages.info(request, f"User {user.username} is already inactive.")
 		return redirect("manage-users")
 
 	return render(
@@ -734,12 +718,14 @@ def delete_case_phone_number(request, case_id, phone_number_id):
 	):
 		raise PermissionDenied
 
-	phone_number = get_object_or_404(
-		CasePhoneNumber,
-		pk=phone_number_id,
-		case_record_id=case_id,
+	case_record = get_object_or_404(
+		_dashboard_case_queryset(request.user),
+		pk=case_id,
 	)
-	case_record = phone_number.case_record
+	phone_number = get_object_or_404(
+		case_record.phone_numbers,
+		pk=phone_number_id,
+	)
 	phone_description = str(phone_number)
 	phone_number.delete()
 	_log_target_action(
@@ -819,13 +805,13 @@ def edit_target_phone_numbers(request, case_id):
 @login_required
 @require_POST
 def delete_target(request, case_id):
-	if not (
-		request.user.is_staff
-		and request.user.has_perm("Adminbackup.delete_caserecord")
-	):
+	if not _can_delete_targets(request.user):
 		raise PermissionDenied
 
-	case_record = get_object_or_404(CaseRecord, pk=case_id)
+	case_record = get_object_or_404(
+		_dashboard_case_queryset(request.user),
+		pk=case_id,
+	)
 	_log_target_action(
 		request.user,
 		case_record,
@@ -909,13 +895,7 @@ def submit_case(request):
 @require_http_methods(["GET", "POST"])
 def edit_target(request, case_id):
 	"""Edit a target from the case portal without opening Django admin."""
-	if not (
-		request.user.is_staff
-		and request.user.has_perm("Adminbackup.change_caserecord")
-		and request.user.has_perm("Adminbackup.add_casephonenumber")
-		and request.user.has_perm("Adminbackup.change_casephonenumber")
-		and request.user.has_perm("Adminbackup.delete_casephonenumber")
-	):
+	if not _can_edit_targets(request.user):
 		raise PermissionDenied
 
 	case_record = get_object_or_404(
@@ -1009,18 +989,7 @@ def private_identification_media(request, filename):
 	record = CaseRecord.objects.filter(
 		personal_identifications=relative_path
 	).first()
-	if record is None:
-		raise Http404
-
-	can_view_all = request.user.is_staff and (
-		request.user.has_perm("Adminbackup.view_caserecord")
-		or request.user.has_perm("Adminbackup.change_caserecord")
-	)
-	if not (
-		request.user.is_superuser
-		or can_view_all
-		or record.is_assigned_to(request.user)
-	):
+	if record is None or not _can_read_case(request.user, record):
 		raise Http404
 
 	return FileResponse(
@@ -1036,18 +1005,7 @@ def private_target_file(request, case_id, field_name):
 	if field_name not in ("personal_identifications", "attached_document"):
 		raise Http404
 
-	record = get_object_or_404(CaseRecord, pk=case_id)
-	can_view_all = request.user.is_staff and (
-		request.user.has_perm("Adminbackup.view_caserecord")
-		or request.user.has_perm("Adminbackup.change_caserecord")
-	)
-	if not (
-		request.user.is_superuser
-		or can_view_all
-		or record.is_assigned_to(request.user)
-	):
-		raise Http404
-
+	record = get_object_or_404(_dashboard_case_queryset(request.user), pk=case_id)
 	target_file = getattr(record, field_name)
 	if not target_file:
 		raise Http404
@@ -1065,9 +1023,7 @@ def private_target_file(request, case_id, field_name):
 @login_required
 @require_GET
 def private_attached_report(request, case_id, report_id):
-	record = get_object_or_404(CaseRecord, pk=case_id)
-	if not _can_read_case(request.user, record):
-		raise Http404
+	record = get_object_or_404(_dashboard_case_queryset(request.user), pk=case_id)
 	report = get_object_or_404(CaseReport, pk=report_id, case_record=record)
 	return FileResponse(
 		report.file.open("rb"),
@@ -1079,12 +1035,4 @@ def private_attached_report(request, case_id, report_id):
 
 
 def _can_read_case(user, record):
-	can_view_all = user.is_staff and (
-		user.has_perm("Adminbackup.view_caserecord")
-		or user.has_perm("Adminbackup.change_caserecord")
-	)
-	return (
-		user.is_superuser
-		or can_view_all
-		or record.is_assigned_to(user)
-	)
+	return _dashboard_case_queryset(user).filter(pk=record.pk).exists()

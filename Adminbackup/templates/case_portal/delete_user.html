@@ -1,24 +1,24 @@
 {% extends "case_portal/base.html" %}
 
-{% block title %}Delete user{% endblock %}
+{% block title %}Deactivate user{% endblock %}
 
 {% block content %}
   <div class="workspace-page">
     <div class="workspace-header">
       <div>
         <p class="eyebrow">Administration</p>
-        <h1>Delete user</h1>
-        <p class="intro">Are you sure you want to permanently delete <strong>{{ managed_user.username }}</strong>? This action cannot be undone.</p>
+        <h1>Deactivate user</h1>
+        <p class="intro">Are you sure you want to deactivate <strong>{{ managed_user.username }}</strong>?</p>
       </div>
     </div>
 
   <form class="workspace-form" method="post">
     {% csrf_token %}
     <section class="workspace-card">
-      <p class="mb-0">Deleting this account removes its login and assigned access.</p>
+      <p class="mb-0">The account will no longer be able to sign in and is signed out immediately. Its activity history is kept. You can reactivate it later from <strong>Edit</strong> by checking <em>Active</em>.</p>
     </section>
     <div class="actions">
-      <button class="btn btn-danger target-remove-button" type="submit">Confirm delete</button>
+      <button class="btn btn-danger target-remove-button" type="submit">Confirm deactivate</button>
       <a class="btn btn-outline-secondary button button-secondary" href="{% url 'manage-users' %}">Cancel</a>
     </div>
   </form>

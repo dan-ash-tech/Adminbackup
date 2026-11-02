@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
+from datetime import timedelta
 from pathlib import Path
 import os
 
@@ -46,9 +47,20 @@ def _env_int(name, default):
 DEBUG = _env_bool("DJANGO_DEBUG", False)
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "").strip()
-if not SECRET_KEY or SECRET_KEY.startswith("replace-with-"):
+# Reject placeholder or hand-typed keys: they can be guessed and used to forge
+# signed data. Generate one with: python -c "import secrets; print(secrets.token_urlsafe(50))"
+_WEAK_KEY_WORDS = (
+    "replace-with", "django-insecure", "insecure-", "local-dev", "dev-secret",
+    "secret-key", "change-me", "changeme", "change-this", "example",
+)
+if (
+    len(SECRET_KEY) < 50
+    or len(set(SECRET_KEY)) < 20
+    or any(word in SECRET_KEY.lower() for word in _WEAK_KEY_WORDS)
+):
     raise ImproperlyConfigured(
-        "Set DJANGO_SECRET_KEY to a unique secret in the environment or .env file."
+        "Set DJANGO_SECRET_KEY to a random secret of at least 50 characters "
+        "in the environment or .env file."
     )
 
 configured_allowed_hosts = os.environ.get("DJANGO_ALLOWED_HOSTS", "").strip()
@@ -57,9 +69,14 @@ ALLOWED_HOSTS = [
     for host in configured_allowed_hosts.split(",")
     if host.strip()
 ]
+
 if not ALLOWED_HOSTS:
     if DEBUG:
-        ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
+        ALLOWED_HOSTS = [
+            "localhost",
+            "127.0.0.1",
+            
+        ]
     else:
         raise ImproperlyConfigured(
             "Set DJANGO_ALLOWED_HOSTS to the production hostnames."
@@ -99,20 +116,42 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    
-    
+    'axes',
+    'django_extensions',
     'Adminbackup',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # Must be last: turns locked-out login attempts into a lockout response.
+    'axes.middleware.AxesMiddleware',
 ]
+
+AUTHENTICATION_BACKENDS = [
+    # Must be first so locked-out users are rejected before password checks.
+    'axes.backends.AxesStandaloneBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
+
+# Login brute-force protection (covers both the portal and /admin/ logins).
+# An account is locked per username + IP after this many failed attempts.
+AXES_FAILURE_LIMIT = _env_int("DJANGO_LOGIN_FAILURE_LIMIT", 5)
+AXES_COOLOFF_TIME = timedelta(minutes=_env_int("DJANGO_LOGIN_LOCKOUT_MINUTES", 15))
+AXES_LOCKOUT_PARAMETERS = [["username", "ip_address"]]
+AXES_RESET_ON_SUCCESS = True
+
+# Sessions: sign out when the browser closes or after this much inactivity.
+SESSION_COOKIE_AGE = _env_int("DJANGO_SESSION_IDLE_MINUTES", 480) * 60
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+SESSION_SAVE_EVERY_REQUEST = True
+SESSION_COOKIE_HTTPONLY = True
 
 ROOT_URLCONF = 'config.urls'
 
@@ -137,12 +176,37 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+DB_ENGINE = os.environ.get("DJANGO_DB_ENGINE", "postgresql").strip().lower()
+if DB_ENGINE == "postgresql":
+    _db_name = os.environ.get("POSTGRES_DB", "").strip()
+    _db_user = os.environ.get("POSTGRES_USER", "").strip()
+    _db_password = os.environ.get("POSTGRES_PASSWORD", "")
+    if not (_db_name and _db_user and _db_password):
+        raise ImproperlyConfigured(
+            "Set POSTGRES_DB, POSTGRES_USER and POSTGRES_PASSWORD, or set "
+            "DJANGO_DB_ENGINE=sqlite for local development."
+        )
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': _db_name,
+            'USER': _db_user,
+            'PASSWORD': _db_password,
+            'HOST': os.environ.get("POSTGRES_HOST", "127.0.0.1").strip(),
+            'PORT': os.environ.get("POSTGRES_PORT", "5432").strip(),
+            'CONN_MAX_AGE': 60,
+            'CONN_HEALTH_CHECKS': True,
+        }
     }
-}
+elif DB_ENGINE == "sqlite":
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': os.environ.get("SQLITE_PATH", "").strip() or BASE_DIR / 'db.sqlite3',
+        }
+    }
+else:
+    raise ImproperlyConfigured("DJANGO_DB_ENGINE must be 'postgresql' or 'sqlite'.")
 
 
 # Password validation
@@ -180,9 +244,21 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STORAGES = {
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
+    'staticfiles': {
+        'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage',
+    },
+}
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+# Maximum size of each uploaded image or report.
+MAX_UPLOAD_SIZE_MB = _env_int("DJANGO_MAX_UPLOAD_SIZE_MB", 10)
 
 LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "dashboard"
@@ -195,5 +271,57 @@ LOGOUT_REDIRECT_URL = "login"
 MAILERS = {
     'default': {
         'BACKEND': 'django.core.mail.backends.console.EmailBackend',
+    },
+}
+# The app sends no email, so the production-backend check does not apply.
+SILENCED_SYSTEM_CHECKS = ["mail.E001"]
+
+
+# Logging
+# Errors, security events (CSRF failures, unknown hosts, suspicious requests)
+# and login lockouts go to logs/django.log so incidents can be reviewed later.
+
+LOG_DIR = BASE_DIR / "logs"
+LOG_DIR.mkdir(exist_ok=True)
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "standard": {
+            "format": "{asctime} {levelname} {name}: {message}",
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "standard",
+        },
+        "file": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": LOG_DIR / "django.log",
+            "maxBytes": 5 * 1024 * 1024,
+            "backupCount": 10,
+            "encoding": "utf-8",
+            "delay": True,
+            "formatter": "standard",
+        },
+    },
+    "loggers": {
+        "django": {
+            "handlers": ["console", "file"],
+            "level": "WARNING",
+        },
+        "django.security": {
+            "handlers": ["console", "file"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "axes": {
+            "handlers": ["console", "file"],
+            "level": "INFO",
+            "propagate": False,
+        },
     },
 }

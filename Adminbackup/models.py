@@ -1,12 +1,42 @@
 from django.db import models
 from django.db.models import Exists, F, OuterRef, Q
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.validators import FileExtensionValidator
 from django.db import router, transaction
-from django.conf import settings
+from django.db.models.signals import post_delete, pre_save
+from django.dispatch import receiver
+
+
+def validate_upload_size(uploaded_file):
+	limit_mb = settings.MAX_UPLOAD_SIZE_MB
+	if uploaded_file.size > limit_mb * 1024 * 1024:
+		raise ValidationError(f"Files must be {limit_mb} MB or smaller.")
+
+
+def can_view_all_records(user):
+	return (
+		user.is_staff
+		and user.has_perm("Adminbackup.view_caserecord")
+		and not user.has_perm("Adminbackup.change_caserecord")
+	)
 
 
 class CaseRecordQuerySet(models.QuerySet):
+	def visible_to(self, user):
+		"""Superusers and view-all users see every target; others only assigned ones.
+
+		This is the single source of truth for record-level access. Every view,
+		file download and admin page that touches a target must go through it.
+		"""
+		if user.is_superuser or can_view_all_records(user):
+			return self.all()
+		# pk__in avoids .distinct(), which would block queryset.delete() in admin.
+		assigned = self.model.objects.filter(
+			Q(assigned_users=user) | Q(assigned_user=user)
+		).values("pk")
+		return self.filter(pk__in=assigned)
+
 	@staticmethod
 	def _reprovisioned_after_termination():
 		return (
@@ -111,12 +141,13 @@ class CaseRecord(models.Model):
 	personal_identifications = models.ImageField(
 		upload_to="personal_identifications/",
 		verbose_name="Image",
+		validators=[validate_upload_size],
 	)
 	attached_document = models.FileField(
 		upload_to="case_documents/",
 		blank=True,
 		verbose_name="Report",
-		validators=[FileExtensionValidator(["doc", "docx"])],
+		validators=[FileExtensionValidator(["doc", "docx"]), validate_upload_size],
 	)
 	start_date = models.DateField()
 	first_termination_date = models.DateField(blank=True, null=True)
@@ -162,12 +193,6 @@ class CaseRecord(models.Model):
 
 	def __str__(self):
 		return f"{self.code} - {self.last_name}, {self.first_name}"
-
-	def is_assigned_to(self, user):
-		return (
-			self.assigned_user_id == user.pk
-			or self.assigned_users.filter(pk=user.pk).exists()
-		)
 
 	@property
 	def assigned_users_display(self):
@@ -291,7 +316,7 @@ class CaseReport(models.Model):
 	)
 	file = models.FileField(
 		upload_to="case_documents/",
-		validators=[FileExtensionValidator(["doc", "docx"])],
+		validators=[FileExtensionValidator(["doc", "docx"]), validate_upload_size],
 		verbose_name="Report",
 	)
 
@@ -300,3 +325,53 @@ class CaseReport(models.Model):
 
 	def __str__(self):
 		return self.file.name.rsplit("/", 1)[-1]
+
+
+# Uploaded files hold sensitive personal data, so remove them from disk once
+# no record refers to them (record deleted, file replaced, or file cleared).
+UPLOAD_FIELDS = {
+	CaseRecord: ("personal_identifications", "attached_document"),
+	CaseReport: ("file",),
+}
+
+
+def _file_is_referenced(name, using):
+	return any(
+		model.objects.using(using).filter(**{field: name}).exists()
+		for model, fields in UPLOAD_FIELDS.items()
+		for field in fields
+	)
+
+
+def _delete_file_on_commit(field_file, using):
+	if not field_file or not field_file.name:
+		return
+	storage, name = field_file.storage, field_file.name
+
+	def delete_if_unreferenced():
+		if not _file_is_referenced(name, using):
+			storage.delete(name)
+
+	transaction.on_commit(delete_if_unreferenced, using=using)
+
+
+@receiver(post_delete, sender=CaseRecord)
+@receiver(post_delete, sender=CaseReport)
+def delete_files_with_record(sender, instance, using, **kwargs):
+	for field in UPLOAD_FIELDS[sender]:
+		_delete_file_on_commit(getattr(instance, field), using)
+
+
+@receiver(pre_save, sender=CaseRecord)
+@receiver(pre_save, sender=CaseReport)
+def delete_replaced_files(sender, instance, using, raw=False, **kwargs):
+	if raw or instance.pk is None:
+		return
+	fields = UPLOAD_FIELDS[sender]
+	previous = sender.objects.using(using).filter(pk=instance.pk).only(*fields).first()
+	if previous is None:
+		return
+	for field in fields:
+		old_file = getattr(previous, field)
+		if old_file and old_file.name != getattr(instance, field).name:
+			_delete_file_on_commit(old_file, using)

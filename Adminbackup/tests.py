@@ -7,6 +7,7 @@ from zipfile import ZipFile
 
 from django import forms
 from django.contrib import admin
+from django.contrib.admin.models import CHANGE, LogEntry
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.core.files.base import ContentFile
@@ -1821,14 +1822,31 @@ class SuperuserUserManagementTests(TestCase):
 		self.viewer.refresh_from_db()
 		self.assertTrue(self.viewer.check_password("New-viewer-password-984!"))
 
-	def test_superuser_can_confirm_viewer_deletion(self):
+	def test_superuser_deactivates_viewer_and_keeps_audit_history(self):
 		delete_url = reverse("delete-user", args=[self.viewer.pk])
 		self.assertEqual(self.client.get(delete_url).status_code, 200)
+		LogEntry.objects.log_actions(
+			user_id=self.viewer.pk,
+			queryset=[self.viewer],
+			action_flag=CHANGE,
+			change_message="Earlier activity",
+			single_object=True,
+		)
 
 		response = self.client.post(delete_url)
 
 		self.assertRedirects(response, reverse("manage-users"))
-		self.assertFalse(get_user_model().objects.filter(pk=self.viewer.pk).exists())
+		self.viewer.refresh_from_db()
+		self.assertFalse(self.viewer.is_active)
+		self.assertTrue(LogEntry.objects.filter(user=self.viewer).exists())
+
+	def test_django_admin_cannot_hard_delete_users(self):
+		response = self.client.get(
+			reverse("admin:auth_user_delete", args=[self.viewer.pk])
+		)
+
+		self.assertEqual(response.status_code, 403)
+		self.assertTrue(get_user_model().objects.filter(pk=self.viewer.pk).exists())
 
 	def test_management_actions_cannot_modify_superuser_accounts(self):
 		for url_name in ("edit-user", "reset-user-password", "delete-user"):
@@ -1854,3 +1872,192 @@ class SuperuserUserManagementTests(TestCase):
 		):
 			with self.subTest(url=url):
 				self.assertEqual(viewer_client.get(url).status_code, 403)
+
+
+class RecordLevelAccessTests(TestCase):
+	"""Target editors may only act on targets assigned to them."""
+
+	def setUp(self):
+		self.editor = get_user_model().objects.create_user(
+			username="scoped-editor",
+			password="Editor-valid-password-123",
+			is_staff=True,
+		)
+		self.editor.user_permissions.add(
+			*Permission.objects.filter(
+				content_type__app_label="Adminbackup",
+				codename__in=(
+					"add_caserecord",
+					"change_caserecord",
+					"delete_caserecord",
+					"view_caserecord",
+					"add_casephonenumber",
+					"change_casephonenumber",
+					"delete_casephonenumber",
+				),
+			)
+		)
+		self.assigned = self.create_case("ASSIGNED")
+		self.assigned.assigned_users.add(self.editor)
+		self.unassigned = self.create_case("UNASSIGNED")
+		self.unassigned_phone = CasePhoneNumber.objects.create(
+			case_record=self.unassigned,
+			number="5550199",
+		)
+		self.client.force_login(self.editor)
+
+	def create_case(self, code):
+		return CaseRecord.objects.create(
+			code=code,
+			first_name="Test",
+			last_name="Record",
+			authorizer="Test Authorizer",
+			case_type="Test",
+			personal_identifications=f"personal_identifications/{code}.png",
+			attached_document=f"case_documents/{code}.docx",
+			start_date=date(2026, 1, 1),
+		)
+
+	def test_editor_cannot_delete_unassigned_target(self):
+		response = self.client.post(
+			reverse("delete-target", args=[self.unassigned.pk])
+		)
+
+		self.assertEqual(response.status_code, 404)
+		self.assertTrue(CaseRecord.objects.filter(pk=self.unassigned.pk).exists())
+
+	def test_editor_cannot_delete_phone_number_of_unassigned_target(self):
+		response = self.client.post(
+			reverse(
+				"delete-case-phone-number",
+				args=[self.unassigned.pk, self.unassigned_phone.pk],
+			)
+		)
+
+		self.assertEqual(response.status_code, 404)
+		self.assertTrue(
+			CasePhoneNumber.objects.filter(pk=self.unassigned_phone.pk).exists()
+		)
+
+	def test_editor_cannot_download_files_of_unassigned_target(self):
+		for url in (
+			reverse(
+				"private-target-file",
+				args=[self.unassigned.pk, "personal_identifications"],
+			),
+			reverse(
+				"private-target-file",
+				args=[self.unassigned.pk, "attached_document"],
+			),
+			reverse(
+				"private-identification-media",
+				args=["UNASSIGNED.png"],
+			),
+		):
+			with self.subTest(url=url):
+				self.assertEqual(self.client.get(url).status_code, 404)
+
+	def test_django_admin_lists_only_assigned_targets_for_editor(self):
+		request = RequestFactory().get("/admin/Adminbackup/caserecord/")
+		request.user = self.editor
+		case_admin = CaseRecordAdmin(CaseRecord, admin.site)
+
+		codes = set(case_admin.get_queryset(request).values_list("code", flat=True))
+
+		self.assertEqual(codes, {"ASSIGNED"})
+
+	def test_superuser_still_sees_every_target(self):
+		superuser = get_user_model().objects.create_superuser(
+			username="scoped-admin",
+			password="Admin-valid-password-123",
+		)
+
+		self.assertEqual(CaseRecord.objects.visible_to(superuser).count(), 2)
+
+
+class UploadedFileCleanupTests(TestCase):
+	def create_case_with_files(self):
+		image = BytesIO()
+		Image.new("RGB", (1, 1)).save(image, format="PNG")
+		case_record = CaseRecord.objects.create(
+			code="FILES",
+			first_name="Test",
+			last_name="Record",
+			authorizer="Test Authorizer",
+			case_type="Test",
+			personal_identifications=SimpleUploadedFile("id.png", image.getvalue()),
+			start_date=date(2026, 1, 1),
+		)
+		report = CaseReport.objects.create(
+			case_record=case_record,
+			file=SimpleUploadedFile("report.docx", b"report"),
+		)
+		return case_record, report
+
+	def test_deleting_target_removes_its_files_from_disk(self):
+		with TemporaryDirectory() as media_root, override_settings(
+			MEDIA_ROOT=media_root
+		):
+			case_record, report = self.create_case_with_files()
+			storage = case_record.personal_identifications.storage
+			image_name = case_record.personal_identifications.name
+			report_name = report.file.name
+
+			with self.captureOnCommitCallbacks(execute=True):
+				case_record.delete()
+
+			self.assertFalse(storage.exists(image_name))
+			self.assertFalse(storage.exists(report_name))
+
+	def test_replacing_image_removes_previous_file(self):
+		with TemporaryDirectory() as media_root, override_settings(
+			MEDIA_ROOT=media_root
+		):
+			case_record, _report = self.create_case_with_files()
+			storage = case_record.personal_identifications.storage
+			old_name = case_record.personal_identifications.name
+			image = BytesIO()
+			Image.new("RGB", (2, 2)).save(image, format="PNG")
+
+			with self.captureOnCommitCallbacks(execute=True):
+				case_record.personal_identifications = SimpleUploadedFile(
+					"new-id.png", image.getvalue()
+				)
+				case_record.save()
+
+			self.assertFalse(storage.exists(old_name))
+			self.assertTrue(storage.exists(case_record.personal_identifications.name))
+
+	@override_settings(MAX_UPLOAD_SIZE_MB=1)
+	def test_oversized_report_is_rejected(self):
+		report = CaseReport(
+			file=SimpleUploadedFile("big.docx", b"x" * (1024 * 1024 + 1)),
+		)
+
+		with self.assertRaises(forms.ValidationError):
+			report.full_clean(exclude=["case_record"])
+
+
+@override_settings(AXES_FAILURE_LIMIT=3)
+class LoginLockoutTests(TestCase):
+	def setUp(self):
+		get_user_model().objects.create_user(
+			username="lockout-user",
+			password="Correct-valid-password-123",
+		)
+
+	def test_repeated_failed_logins_lock_the_account(self):
+		login_url = reverse("login")
+		for _attempt in range(3):
+			self.client.post(
+				login_url,
+				{"username": "lockout-user", "password": "wrong"},
+			)
+
+		response = self.client.post(
+			login_url,
+			{"username": "lockout-user", "password": "Correct-valid-password-123"},
+		)
+
+		self.assertEqual(response.status_code, 429)
+		self.assertNotIn("_auth_user_id", self.client.session)
