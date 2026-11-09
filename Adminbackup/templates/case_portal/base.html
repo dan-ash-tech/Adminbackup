@@ -62,6 +62,10 @@
     .account-user .avatar { color: #153d36; background: #b9ead7; }
     .account form { margin: 0; }
     main { width: min(1320px, calc(100% - 3rem)); margin: 2.5rem auto 4rem; }
+    .back-home-nav { margin: 0 0 1.25rem; }
+    .back-home-link { display: inline-flex; align-items: center; gap: .45rem; min-height: 2.35rem; padding: .42rem .85rem; border: 1px solid #cbdad4; border-radius: 8px; color: var(--accent-dark); background: #fff; font-size: .86rem; font-weight: 750; text-decoration: none; box-shadow: 0 2px 8px rgb(23 54 46 / 6%); transition: background .16s ease, border-color .16s ease, color .16s ease; }
+    .back-home-link:hover { border-color: var(--accent-dark); color: #fff; background: var(--accent-dark); text-decoration: none; }
+    .back-home-link span[aria-hidden="true"] { font-size: 1rem; line-height: 1; }
     .status-tabs { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1.4rem 0; padding: .45rem; border: 1px solid #cbdad4; border-radius: 12px; background: #eaf1ee; }
     .status-tabs .status-tab { display: inline-flex; justify-content: center; align-items: center; min-height: 2.8rem; padding: .62rem 1rem; border: 1px solid #b8cbc3; border-radius: 9px; color: #29473f; background: #fff; font-weight: 700; text-decoration: none; transition: color .16s ease, background .16s ease, box-shadow .16s ease; }
     .status-tabs .status-tab:hover { border-color: var(--accent); color: var(--accent-dark); background: #f4fbf7; }
@@ -402,6 +406,13 @@
       </div>
     {% endif %}
   </header>
-  <main class="container-xl">{% block content %}{% endblock %}</main>
+  <main class="container-xl">
+    {% if user.is_authenticated and request.resolver_match.url_name != 'dashboard' %}
+      <nav class="back-home-nav" aria-label="Back to home">
+        <a class="back-home-link" href="{% url 'dashboard' %}"><span aria-hidden="true">&larr;</span> Back to Home</a>
+      </nav>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
 </body>
 </html>
