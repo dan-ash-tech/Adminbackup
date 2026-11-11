@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Reusable deployment for the Target Records app on a local-network server.
+# NOTE: On Windows Server use deploy.ps1 instead (native PowerShell, no Git Bash needed).
+# Usage: ./deploy.sh --hosts 192.168.1.20 --serve
+# Reusable deployment for the Target Records app on a Windows LAN server.
+# Requires PostgreSQL. Run in Git Bash on Windows Server.
 #
 # Safe to run repeatedly: it reuses an existing .env, creates the PostgreSQL
 # role/database only if missing, applies migrations and collects static files.
-# Works on Linux and on Windows (Git Bash).
 #
-# First deployment, moving existing SQLite data into PostgreSQL:
-#   ./deploy.sh --hosts 192.168.1.20 --import-sqlite db.sqlite3 --serve
+# First deployment:
+#   ./deploy.sh --hosts 192.168.1.20 --serve
 #
 # Later updates (after pulling new code):
 #   ./deploy.sh --serve
@@ -29,8 +31,6 @@ PG_PORT="5432"
 PG_ADMIN_USER="postgres"
 PG_ADMIN_SUDO=false
 SKIP_DB_SETUP=false
-IMPORT_SQLITE=""
-HTTPS=true
 SERVE=false
 LISTEN_PORT="8000"
 THREADS="8"
@@ -47,18 +47,12 @@ Configuration (used when .env is created; an existing .env is reused):
   --db-user NAME        PostgreSQL application role  (default: target_records_app)
   --pg-host HOST        PostgreSQL host              (default: 127.0.0.1)
   --pg-port PORT        PostgreSQL port              (default: 5432)
-  --https               Only if a TLS proxy serves the site over HTTPS:
-                        enables secure cookies and HTTPS redirects.
 
 Database setup:
   --pg-admin-user NAME  PostgreSQL superuser used to create the role and
                         database (default: postgres). Its password is read
                         from PGPASSWORD or prompted for.
-  --pg-admin-sudo       Linux: connect as the postgres OS user via
-                        "sudo -u postgres" instead of a password.
   --skip-db-setup       The role and database already exist.
-  --import-sqlite PATH  Copy all data from an existing SQLite database into
-                        the (empty) PostgreSQL database. Run once.
 
 Runtime:
   --venv DIR            Python virtual environment   (default: .venv)
@@ -79,8 +73,6 @@ while [[ $# -gt 0 ]]; do
 		--pg-admin-user) PG_ADMIN_USER="$2"; shift 2 ;;
 		--pg-admin-sudo) PG_ADMIN_SUDO=true; shift ;;
 		--skip-db-setup) SKIP_DB_SETUP=true; shift ;;
-		--import-sqlite) IMPORT_SQLITE="$2"; shift 2 ;;
-		--https) HTTPS=true; shift ;;
 		--venv) VENV_DIR="$2"; shift 2 ;;
 		--serve) SERVE=true; shift ;;
 		--port) LISTEN_PORT="$2"; shift 2 ;;
@@ -159,11 +151,7 @@ fi
 step "Configuring $ENV_FILE"
 if [[ ! -f "$ENV_FILE" ]]; then
 	[[ -n "$HOSTS" ]] || die "--hosts is required when creating .env (e.g. --hosts 192.168.1.20)."
-	secure="$HTTPS"
-	csrf_origins=""
-	if [[ "$HTTPS" == true ]]; then
-		csrf_origins="$(echo "$HOSTS" | tr ',' '\n' | sed 's/^ *//; s/ *$//; s|^|https://|' | paste -sd, -)"
-	fi
+	csrf_origins="$(echo "$HOSTS" | tr ',' '\n' | sed "s/^ *//; s/ *\$//; s|^|http://|; s/\$/:$LISTEN_PORT/" | paste -sd, -)"
 	(
 		umask 077
 		cat > "$ENV_FILE" <<EOF
@@ -173,16 +161,9 @@ DJANGO_DEBUG=false
 DJANGO_ALLOWED_HOSTS=$HOSTS
 DJANGO_CSRF_TRUSTED_ORIGINS=$csrf_origins
 
-DJANGO_SECURE_SSL_REDIRECT=$secure
-DJANGO_SESSION_COOKIE_SECURE=$secure
-DJANGO_CSRF_COOKIE_SECURE=$secure
-DJANGO_SECURE_HSTS_SECONDS=0
-DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS=false
-DJANGO_SECURE_HSTS_PRELOAD=false
 DJANGO_SECURE_CONTENT_TYPE_NOSNIFF=true
 DJANGO_X_FRAME_OPTIONS=DENY
 
-DJANGO_DB_ENGINE=postgresql
 POSTGRES_DB=$DB_NAME
 POSTGRES_USER=$DB_USER
 POSTGRES_PASSWORD=$(random_token 32)
@@ -193,14 +174,13 @@ EOF
 	echo "Created .env with a new secret key and database password."
 else
 	echo "Reusing existing .env."
-	if [[ "$(env_get DJANGO_DB_ENGINE)" != "postgresql" || -z "$(env_get POSTGRES_PASSWORD)" ]]; then
+	if [[ -z "$(env_get POSTGRES_PASSWORD)" ]]; then
 		backup="$ENV_FILE.bak.$(date +%Y%m%d%H%M%S)"
 		cp "$ENV_FILE" "$backup"
-		echo "Switching .env to PostgreSQL (previous version saved as $(basename "$backup"))."
-		env_set DJANGO_DB_ENGINE postgresql
+		echo "Adding PostgreSQL credentials to .env (previous version saved as $(basename "$backup"))."
 		[[ -n "$(env_get POSTGRES_DB)" ]] || env_set POSTGRES_DB "$DB_NAME"
 		[[ -n "$(env_get POSTGRES_USER)" ]] || env_set POSTGRES_USER "$DB_USER"
-		[[ -n "$(env_get POSTGRES_PASSWORD)" ]] || env_set POSTGRES_PASSWORD "$(random_token 32)"
+		env_set POSTGRES_PASSWORD "$(random_token 32)"
 		[[ -n "$(env_get POSTGRES_HOST)" ]] || env_set POSTGRES_HOST "$PG_HOST"
 		[[ -n "$(env_get POSTGRES_PORT)" ]] || env_set POSTGRES_PORT "$PG_PORT"
 	fi
@@ -258,44 +238,6 @@ manage shell -c "from django.db import connection; connection.ensure_connection(
 
 step "Applying database migrations"
 manage migrate --noinput
-
-# ------------------------------------------------------ sqlite data import --
-if [[ -n "$IMPORT_SQLITE" ]]; then
-	step "Importing data from $IMPORT_SQLITE"
-	[[ -f "$IMPORT_SQLITE" ]] || die "SQLite file not found: $IMPORT_SQLITE"
-	IMPORT_SQLITE="$(cd "$(dirname "$IMPORT_SQLITE")" && pwd)/$(basename "$IMPORT_SQLITE")"
-
-	existing="$(manage shell -c "from django.contrib.auth import get_user_model; from Adminbackup.models import CaseRecord; print(get_user_model().objects.count() + CaseRecord.objects.count())" | tail -n 1)"
-	[[ "$existing" == "0" ]] || die "PostgreSQL already contains $existing users/targets; refusing to import on top of existing data."
-
-	# Work on a copy so the original SQLite file is never modified, and keep
-	# the (sensitive) JSON dump private and short-lived.
-	work_dir="$(mktemp -d)"
-	chmod 700 "$work_dir"
-	trap 'rm -rf "$work_dir"' EXIT
-	cp "$IMPORT_SQLITE" "$work_dir/source.sqlite3"
-
-	sqlite_manage() {
-		DJANGO_DB_ENGINE=sqlite SQLITE_PATH="$work_dir/source.sqlite3" manage "$@"
-	}
-	sqlite_manage migrate --noinput >/dev/null
-	sqlite_manage dumpdata \
-		--natural-foreign --natural-primary \
-		--exclude contenttypes --exclude auth.permission \
-		--exclude sessions --exclude axes \
-		--output "$work_dir/data.json"
-	manage loaddata "$work_dir/data.json"
-
-	count_script="from django.contrib.auth import get_user_model; from django.contrib.admin.models import LogEntry; from Adminbackup.models import CaseRecord, CasePhoneNumber, CaseReport, TargetMonitoringPeriod; print(get_user_model().objects.count(), CaseRecord.objects.count(), CasePhoneNumber.objects.count(), CaseReport.objects.count(), TargetMonitoringPeriod.objects.count(), LogEntry.objects.count())"
-	source_counts="$(sqlite_manage shell -c "$count_script" | tail -n 1)"
-	target_counts="$(manage shell -c "$count_script" | tail -n 1)"
-	echo "Rows (users targets phones reports periods logs): SQLite=[$source_counts] PostgreSQL=[$target_counts]"
-	[[ "$source_counts" == "$target_counts" ]] || die "Row counts differ after import; check the output above."
-
-	rm -rf "$work_dir"
-	trap - EXIT
-	echo "Import complete. Uploaded files are not in the database: make sure the media/ folder was copied to $APP_DIR/media."
-fi
 
 # ----------------------------------------------------------------- finish --
 step "Collecting static files"

@@ -88,14 +88,12 @@ CSRF_TRUSTED_ORIGINS = [
     if origin.strip()
 ]
 
-SECURE_SSL_REDIRECT = _env_bool("DJANGO_SECURE_SSL_REDIRECT", not DEBUG)
-SESSION_COOKIE_SECURE = _env_bool("DJANGO_SESSION_COOKIE_SECURE", not DEBUG)
-CSRF_COOKIE_SECURE = _env_bool("DJANGO_CSRF_COOKIE_SECURE", not DEBUG)
-SECURE_HSTS_SECONDS = _env_int("DJANGO_SECURE_HSTS_SECONDS", 0)
-SECURE_HSTS_INCLUDE_SUBDOMAINS = _env_bool(
-    "DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS", False
-)
-SECURE_HSTS_PRELOAD = _env_bool("DJANGO_SECURE_HSTS_PRELOAD", False)
+SECURE_SSL_REDIRECT = False
+SESSION_COOKIE_SECURE = False
+CSRF_COOKIE_SECURE = False
+SECURE_HSTS_SECONDS = 0
+SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+SECURE_HSTS_PRELOAD = False
 SECURE_CONTENT_TYPE_NOSNIFF = _env_bool(
     "DJANGO_SECURE_CONTENT_TYPE_NOSNIFF", True
 )
@@ -176,37 +174,25 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
 
-DB_ENGINE = os.environ.get("DJANGO_DB_ENGINE", "postgresql").strip().lower()
-if DB_ENGINE == "postgresql":
-    _db_name = os.environ.get("POSTGRES_DB", "").strip()
-    _db_user = os.environ.get("POSTGRES_USER", "").strip()
-    _db_password = os.environ.get("POSTGRES_PASSWORD", "")
-    if not (_db_name and _db_user and _db_password):
-        raise ImproperlyConfigured(
-            "Set POSTGRES_DB, POSTGRES_USER and POSTGRES_PASSWORD, or set "
-            "DJANGO_DB_ENGINE=sqlite for local development."
-        )
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.postgresql',
-            'NAME': _db_name,
-            'USER': _db_user,
-            'PASSWORD': _db_password,
-            'HOST': os.environ.get("POSTGRES_HOST", "127.0.0.1").strip(),
-            'PORT': os.environ.get("POSTGRES_PORT", "5432").strip(),
-            'CONN_MAX_AGE': 60,
-            'CONN_HEALTH_CHECKS': True,
-        }
+_db_name = os.environ.get("POSTGRES_DB", "").strip()
+_db_user = os.environ.get("POSTGRES_USER", "").strip()
+_db_password = os.environ.get("POSTGRES_PASSWORD", "")
+if not (_db_name and _db_user and _db_password):
+    raise ImproperlyConfigured(
+        "Set POSTGRES_DB, POSTGRES_USER and POSTGRES_PASSWORD in the .env file."
+    )
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': _db_name,
+        'USER': _db_user,
+        'PASSWORD': _db_password,
+        'HOST': os.environ.get("POSTGRES_HOST", "127.0.0.1").strip(),
+        'PORT': os.environ.get("POSTGRES_PORT", "5432").strip(),
+        'CONN_MAX_AGE': 60,
+        'CONN_HEALTH_CHECKS': True,
     }
-elif DB_ENGINE == "sqlite":
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': os.environ.get("SQLITE_PATH", "").strip() or BASE_DIR / 'db.sqlite3',
-        }
-    }
-else:
-    raise ImproperlyConfigured("DJANGO_DB_ENGINE must be 'postgresql' or 'sqlite'.")
+}
 
 
 # Password validation
