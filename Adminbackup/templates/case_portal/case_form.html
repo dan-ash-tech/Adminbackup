@@ -1,6 +1,48 @@
-{% extends "case_portal/base.html" %}
+{% extends "case_portal/base_enterprise.html" %}
 
 {% block title %}Submit Target Record{% endblock %}
+
+{% block extra_styles %}
+/* Required field marker */
+label.required::after { content: " *"; color: #c0392b; font-weight: 700; }
+
+/* Section cards: green top rule + tighter header */
+.form-card {
+  border-top: 3px solid var(--accent);
+  margin-bottom: .9rem;
+}
+.section-kicker {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 0;
+  background: var(--accent); color: #fff;
+  font-size: 10px; font-weight: 700; flex-shrink: 0;
+}
+
+/* Sticky action bar */
+.form-actions {
+  position: sticky; bottom: 0; z-index: 10;
+  background: var(--white);
+  border-top: 2px solid var(--accent);
+  padding: .6rem 1rem;
+  margin: 0 -1.5rem;          /* bleed to main padding edges */
+  box-shadow: 0 -2px 8px rgba(0,0,0,.07);
+  justify-content: flex-end;
+}
+
+/* Single-column vertical field layout */
+.fields {
+  grid-template-columns: 1fr;
+  max-width: 540px;
+}
+.field-wide { grid-column: 1; }
+
+/* Formset rows: clearer grouping */
+.phone-row {
+  border-left: 3px solid var(--accent);
+  background: #f7fcfb;
+  border-color: #c8e6df;
+}
+{% endblock %}
 
 {% block content %}
   <div class="form-page">

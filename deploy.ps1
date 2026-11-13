@@ -12,15 +12,19 @@
         Set-ExecutionPolicy -Scope LocalMachine RemoteSigned
 
     Or bypass for a single run:
-        powershell -ExecutionPolicy Bypass -File deploy.ps1 -Hosts "192.168.1.20" -Serve
+        powershell -ExecutionPolicy Bypass -File deploy.ps1 -Hosts "192.168.1.20"
 
 .EXAMPLE
-    # First deployment:
-    .\deploy.ps1 -Hosts "192.168.1.20" -Serve
+    # First deployment (prompts for listen IP and port):
+    .\deploy.ps1 -Hosts "192.168.1.20"
 
 .EXAMPLE
-    # Later updates (after pulling new code):
-    .\deploy.ps1 -Serve
+    # Later updates — skips the app restart:
+    .\deploy.ps1 -SkipServe
+
+.EXAMPLE
+    # Supply listen address on the command line to skip the prompt:
+    .\deploy.ps1 -ListenIP 192.168.1.20 -Port 8000
 #>
 [CmdletBinding()]
 param(
@@ -32,7 +36,8 @@ param(
     [string]$PgAdminUser = "postgres",
     [switch]$SkipDbSetup,
     [string]$Venv        = ".venv",
-    [switch]$Serve,
+    [switch]$SkipServe,
+    [string]$ListenIP    = "",
     [string]$Port        = "8000",
     [int]   $Threads     = 8
 )
@@ -156,7 +161,7 @@ POSTGRES_PASSWORD=$dbPassword
 POSTGRES_HOST=$PgHost
 POSTGRES_PORT=$PgPort
 "@
-    Set-Content $EnvFile -Value $content -Encoding utf8
+    Set-Content $EnvFile -Value $content -Encoding ascii
     # Restrict permissions to current user (best-effort)
     try {
         $acl = Get-Acl $EnvFile
@@ -257,10 +262,34 @@ if ($hasSuperuser -ne "True") {
 Write-Host ""
 Write-Host "Deployment ready."
 $waitressExe = Join-Path $VenvBin "waitress-serve.exe"
-if ($Serve) {
-    Step "Starting Waitress on 0.0.0.0:$Port (Ctrl+C to stop)"
-    & $waitressExe "--listen=0.0.0.0:$Port" "--threads=$Threads" "config.wsgi:application"
+
+# Stop any running Waitress instance so the new code takes effect immediately.
+$running = Get-Process -Name "waitress-serve" -ErrorAction SilentlyContinue
+if ($running) {
+    Write-Host "Stopping existing Waitress instance(s)..."
+    $running | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 500
+}
+
+if (-not $SkipServe) {
+    # Prompt for listen address if not supplied on the command line.
+    if (-not $ListenIP) {
+        $ListenIP = Read-Host "Listen IP (e.g. 192.168.1.20)"
+        while (-not $ListenIP) {
+            Write-Host "An IP address is required." -ForegroundColor Yellow
+            $ListenIP = Read-Host "Listen IP (e.g. 192.168.1.20)"
+        }
+    }
+    $portInput = Read-Host "Listen port [default: $Port]"
+    if ($portInput) { $Port = $portInput }
+
+    $listenAddr = "$($ListenIP):$Port"
+    Step "Starting Waitress on $listenAddr"
+    Start-Process -FilePath $waitressExe `
+        -ArgumentList "--listen=$listenAddr", "--threads=$Threads", "config.wsgi:application" `
+        -WorkingDirectory $AppDir
+    Write-Host "Waitress is running in a separate window on http://$listenAddr"
 } else {
-    Write-Host "Start the app with:"
-    Write-Host "  $waitressExe --listen=0.0.0.0:$Port --threads=$Threads config.wsgi:application"
+    Write-Host "App restart skipped (-SkipServe). To start manually:"
+    Write-Host "  `"$waitressExe`" --listen=IP:PORT --threads=$Threads config.wsgi:application"
 }

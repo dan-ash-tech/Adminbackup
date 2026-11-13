@@ -1,30 +1,128 @@
-{% extends "case_portal/base.html" %}
-
-{% block title %}Sign in{% endblock %}
-
-{% block content %}
-  <div class="workspace-page">
-    <div class="workspace-header">
-      <div>
-        <p class="eyebrow">Target monitoring system</p>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in — Target Records</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --accent: #1f5699; --accent-h: #174480;
+      --border: #d0d7e0; --border-light: #e4eaf0;
+      --text: #1a2332; --muted: #5c6b7a;
+      --bg: #f0f2f5; --white: #ffffff;
+      --danger: #c0392b; --danger-bg: #fef2f2;
+      --th-bg: #2d4a6a;
+    }
+    html, body { min-height: 100%; }
+    body {
+      font-family: "Segoe UI", Calibri, Arial, sans-serif;
+      font-size: 13px; color: var(--text); background: var(--bg);
+      display: flex; flex-direction: column; min-height: 100vh;
+    }
+    .login-topbar {
+      height: 42px; padding: 0 1.25rem;
+      display: flex; align-items: center;
+      background: var(--white); border-bottom: 2px solid var(--accent);
+      box-shadow: 0 1px 4px rgba(0,0,0,.08);
+    }
+    .login-brand {
+      display: flex; align-items: center; gap: .5rem;
+      font-size: 13px; font-weight: 700; color: var(--accent);
+      text-decoration: none; text-transform: uppercase; letter-spacing: .07em;
+    }
+    .login-brand::before {
+      content: ""; display: inline-block;
+      width: 8px; height: 8px; background: var(--accent);
+    }
+    .login-wrap {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+      padding: 2rem 1rem;
+    }
+    .login-panel {
+      width: 100%; max-width: 380px;
+      background: var(--white); border: 1px solid var(--border);
+    }
+    .login-panel-head {
+      padding: 1.1rem 1.3rem .9rem;
+      border-bottom: 1px solid var(--border-light);
+    }
+    .login-eyebrow {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .1em; color: var(--accent); display: block; margin-bottom: .3rem;
+    }
+    .login-panel-head h1 { font-size: 15px; font-weight: 700; line-height: 1.2; }
+    .login-panel-head p  { font-size: 12px; color: var(--muted); margin-top: .25rem; }
+    .login-body { padding: 1.1rem 1.3rem; display: grid; gap: .75rem; }
+    .login-error {
+      padding: .4rem .6rem; border-left: 3px solid var(--danger);
+      background: var(--danger-bg); color: #8e1f1f;
+      font-size: 12px; grid-column: 1 / -1; list-style: none;
+    }
+    .login-field { display: grid; gap: .3rem; }
+    .login-field label {
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .05em; color: var(--muted);
+    }
+    .login-field input {
+      width: 100%; height: 32px; padding: 0 .55rem;
+      border: 1px solid var(--border); border-radius: 0;
+      font-size: 13px; color: var(--text); background: var(--white);
+      font-family: inherit; outline: none;
+    }
+    .login-field input:focus { border-color: var(--accent); }
+    .login-field .errorlist {
+      list-style: disc; padding-left: 1.1rem;
+      color: var(--danger); font-size: 11.5px; margin: 0;
+    }
+    .login-action { margin-top: .25rem; }
+    .login-btn {
+      display: flex; align-items: center; justify-content: center;
+      width: 100%; height: 32px;
+      background: var(--accent); border: 1px solid var(--accent); border-radius: 0;
+      color: #fff; font-size: 12.5px; font-weight: 700; font-family: inherit;
+      cursor: pointer; letter-spacing: .03em;
+    }
+    .login-btn:hover { background: var(--accent-h); border-color: var(--accent-h); }
+    .login-footer {
+      padding: .75rem 1.3rem; border-top: 1px solid var(--border-light);
+      font-size: 11px; color: var(--muted); text-align: center;
+    }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  </style>
+</head>
+<body>
+  <header class="login-topbar">
+    <span class="login-brand">Target Records</span>
+  </header>
+  <main class="login-wrap">
+    <div class="login-panel">
+      <div class="login-panel-head">
+        <span class="login-eyebrow">Target monitoring system</span>
         <h1>Sign in</h1>
-        <p class="intro">Use your assigned account to continue.</p>
+        <p>Use your assigned account to continue.</p>
       </div>
-    </div>
-  <form class="workspace-form" method="post" novalidate>
-    {% csrf_token %}
-    {{ form.non_field_errors }}
-    {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
-    <section class="workspace-card">
-      <div class="fields">
+      <form class="login-body" method="post" novalidate>
+        {% csrf_token %}
+        {% if form.non_field_errors %}
+          <ul class="login-error">
+            {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+          </ul>
+        {% endif %}
+        {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
         {% for field in form %}
-          <div class="field">
-            {{ field.label_tag }}{{ field }}{{ field.errors }}
+          <div class="login-field">
+            <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% if field.errors %}<ul class="errorlist">{% for e in field.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
           </div>
         {% endfor %}
-      </div>
-    </section>
-    <div class="actions"><button class="btn btn-primary" type="submit">Sign in</button></div>
-  </form>
-  </div>
-{% endblock %}
+        <div class="login-action">
+          <button class="login-btn" type="submit">Sign in</button>
+        </div>
+      </form>
+      <footer class="login-footer">Authorised users only. All access is logged.</footer>
+    </div>
+  </main>
+</body>
+</html>

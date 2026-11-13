@@ -116,6 +116,8 @@ class CaseRecord(models.Model):
 	code = models.CharField(
 		max_length=50,
 		unique=True,
+		blank=True,
+		null=True,
 		verbose_name="Call-sign",
 	)
 	assigned_users = models.ManyToManyField(
@@ -140,6 +142,7 @@ class CaseRecord(models.Model):
 	case_type = models.TextField()
 	personal_identifications = models.ImageField(
 		upload_to="personal_identifications/",
+		blank=True,
 		verbose_name="Image",
 		validators=[validate_upload_size],
 	)
@@ -192,7 +195,7 @@ class CaseRecord(models.Model):
 			return result
 
 	def __str__(self):
-		return f"{self.code} - {self.last_name}, {self.first_name}"
+		return f"{self.code or '—'} - {self.last_name}, {self.first_name}"
 
 	@property
 	def assigned_users_display(self):

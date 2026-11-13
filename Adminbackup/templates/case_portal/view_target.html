@@ -1,6 +1,15 @@
-{% extends "case_portal/base.html" %}
+{% extends "case_portal/base_enterprise.html" %}
 
 {% block title %}View {{ case_record.code }}{% endblock %}
+
+{% block extra_styles %}
+/* Case type cell: allow long text to wrap within its grid cell */
+.record-detail-list dd {
+  overflow-wrap: break-word;
+  word-break: break-word;
+  min-width: 0;
+}
+{% endblock %}
 
 {% block content %}
   <div class="record-view-page">

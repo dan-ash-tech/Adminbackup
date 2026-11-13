@@ -1,4 +1,4 @@
-{% extends "case_portal/base.html" %}
+{% extends "case_portal/base_enterprise.html" %}
 
 {% block title %}Manage users{% endblock %}
 
@@ -36,7 +36,15 @@
         {% for managed_user in managed_users %}
           <tr>
             <td><strong>{{ managed_user.username }}</strong></td>
-            <td><span class="account-state{% if not managed_user.is_active %} inactive{% endif %}">{% if managed_user.is_active %}Active{% else %}Inactive{% endif %}</span></td>
+            <td>
+              {% if not managed_user.is_active %}
+                <span class="account-state inactive">Inactive</span>
+              {% elif managed_user.is_locked %}
+                <span class="account-state locked">Locked</span>
+              {% else %}
+                <span class="account-state">Active</span>
+              {% endif %}
+            </td>
             <td>{{ managed_user.account_role }}</td>
             <td>
               {% if not managed_user.is_superuser %}
@@ -44,6 +52,12 @@
                   <a href="{% url 'edit-user' managed_user.pk %}">Edit</a>
                   <a href="{% url 'reset-user-password' managed_user.pk %}">Reset password</a>
                   {% if managed_user.is_active %}<a href="{% url 'delete-user' managed_user.pk %}">Deactivate</a>{% endif %}
+                  {% if managed_user.is_locked and managed_user.is_active %}
+                    <form method="post" action="{% url 'activate-user' managed_user.pk %}">
+                      {% csrf_token %}
+                      <button type="submit" class="table-action-btn">Activate</button>
+                    </form>
+                  {% endif %}
                 </div>
               {% else %}
                 <span class="account-state protected">Protected</span>

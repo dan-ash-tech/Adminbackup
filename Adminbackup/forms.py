@@ -118,6 +118,18 @@ class CaseRecordIntakeForm(forms.ModelForm):
 			"start_date": forms.DateInput(attrs={"type": "date"}),
 		}
 
+	def clean_code(self):
+		code = self.cleaned_data.get("code")
+		if not code or not code.strip():
+			return None
+		code = code.strip()
+		qs = CaseRecord.objects.filter(code=code)
+		if self.instance and self.instance.pk:
+			qs = qs.exclude(pk=self.instance.pk)
+		if qs.exists():
+			raise ValidationError("A target with this call-sign already exists.")
+		return code
+
 	def save(self, commit=True):
 		case_record = super().save(commit=commit)
 		legacy_user = self.cleaned_data.get("assigned_user")

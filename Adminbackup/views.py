@@ -8,6 +8,9 @@ from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
+from axes.models import AccessAttempt
+
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.contrib.auth import get_user_model
@@ -81,7 +84,7 @@ USER_DASHBOARD_TEXT = {
 		"title": "Target Monitoring",
 		"message": (
 			"View target records by monitoring status. "
-			"Reprovisioned targets return to current monitoring."
+			
 		),
 	},
 	"user1": {
@@ -94,8 +97,7 @@ USER_DASHBOARD_TEXT = {
 	"user2": {
 		"title": "Target Monitoring",
 		"message": (
-			"View target records by monitoring status. "
-			"Reprovisioned targets return to current monitoring."
+			"criminal cases only. "
 		),
 	},
 	"user3": {
@@ -103,6 +105,13 @@ USER_DASHBOARD_TEXT = {
 		"message": (
 		
 			"SPECIAL TARGETS AND OTHER CRIME CASES AND RELATED CASES."
+		),
+	},
+ "admin2": {
+		"title": "SPECIAL TARGETS AND OTHER CRIME CASES AND RELATED CASES",
+		"message": (
+		
+			 ""
 		),
 	},
     "user4": {
@@ -597,6 +606,12 @@ def manage_users(request):
 	if not request.user.is_superuser:
 		raise PermissionDenied
 
+	locked_usernames = set(
+		AccessAttempt.objects.filter(
+			failures_since_start__gte=settings.AXES_FAILURE_LIMIT
+		).values_list("username", flat=True)
+	)
+
 	managed_users = list(
 		get_user_model().objects.order_by("-is_superuser", "username")
 	)
@@ -609,6 +624,7 @@ def manage_users(request):
 			managed_user.account_role = "Target editor"
 		else:
 			managed_user.account_role = "Read-only viewer"
+		managed_user.is_locked = managed_user.username in locked_usernames
 
 	return render(
 		request,
@@ -707,6 +723,24 @@ def delete_user(request, user_id):
 		"case_portal/delete_user.html",
 		{"managed_user": user},
 	)
+
+
+@login_required
+@require_POST
+def activate_user(request, user_id):
+	if not request.user.is_superuser:
+		raise PermissionDenied
+
+	user = _managed_viewer_or_404(user_id)
+	AccessAttempt.objects.filter(username=user.username).delete()
+	_log_user_action(
+		request.user,
+		user,
+		CHANGE,
+		"User account unlocked from the management dashboard.",
+	)
+	messages.success(request, f"User {user.username} account unlocked.")
+	return redirect("manage-users")
 
 
 @login_required

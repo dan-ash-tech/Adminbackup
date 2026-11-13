@@ -267,7 +267,11 @@
     .table-actions a:hover { border-color: var(--accent); color: #fff; background: var(--accent); }
     .account-state { display: inline-flex; align-items: center; min-height: 1.55rem; padding: .15rem .5rem; border-radius: 999px; color: #28624f; background: #e8f5ef; font-size: .7rem; font-weight: 800; }
     .account-state.inactive { color: #8b3a31; background: #fbe6e2; }
+    .account-state.locked { color: #7a4f1a; background: #fff3d6; }
     .account-state.protected { color: #4e5c56; background: #eef1ef; }
+    .table-actions form { margin: 0; }
+    .table-actions .table-action-btn { display: inline-flex; align-items: center; min-height: 1.85rem; padding: .25rem .5rem; border: 1px solid #cbdad4; border-radius: 6px; color: var(--accent-dark); background: #fff; font-size: .72rem; font-weight: 750; white-space: nowrap; box-shadow: none; transform: none; transition: background .16s ease, border-color .16s ease, color .16s ease; }
+    .table-actions .table-action-btn:hover { border-color: var(--accent); color: #fff; background: var(--accent); box-shadow: none; transform: none; }
     /* Target form workspace */
     .form-page { width: min(1080px, 100%); margin-inline: auto; }
     .form-page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 1.5rem; margin-bottom: 1.25rem; }

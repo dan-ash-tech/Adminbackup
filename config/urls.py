@@ -52,6 +52,7 @@ urlpatterns = [
         name="reset-user-password",
     ),
     path("users/<int:user_id>/delete/", views.delete_user, name="delete-user"),
+    path("users/<int:user_id>/activate/", views.activate_user, name="activate-user"),
     path(
         "cases/<int:case_id>/phone-numbers/<int:phone_number_id>/delete/",
         views.delete_case_phone_number,
